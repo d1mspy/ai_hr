@@ -1,9 +1,10 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from services.service import Service
 from repositories.db.repository import Repository
 
-app = FastAPI(title="МТС хак")
+app = FastAPI(title="ВТБ хак")
 
 app.add_middleware(
     CORSMiddleware,
@@ -17,8 +18,9 @@ app.add_middleware(
 class Testdb(BaseModel):
     string: str
 
-# экземпляр тестового класса для взаимодействия с бд
+# экземпляр тестового класса сервиса
 repository = Repository()
+service = Service(repository)
 
 @app.get("/")
 async def test_endpoint() -> str:
@@ -32,12 +34,12 @@ async def test_post(testdb: Testdb) -> None:
     """
     тест базы данных
     """
-    await repository.test_post(testdb.string)
+    await service.test_post(testdb.string)
 
 @app.get("/test")
 async def test_get() -> list | None:
     """
     тест базы данных
     """
-    data = await repository.test_get()
+    data = await service.test_get()
     return data
