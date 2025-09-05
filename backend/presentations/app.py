@@ -3,6 +3,7 @@ from utils.websocket import ConnectionManager
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from services.service import Service
+from repositories.db.user import UserRepository
 from repositories.db.repository import Repository
 from schemas.docs import ParsedDocsResponse
 
