@@ -1,4 +1,5 @@
-from fastapi import UploadFile, File, FastAPI, HTTPException, status
+from fastapi import UploadFile, File, FastAPI, HTTPException, status, WebSocket, WebSocketException, status
+from utils.websocket import ConnectionManager
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from services.service import Service
@@ -67,3 +68,33 @@ async def compare_docs(cv: UploadFile = File(...), vacancy: UploadFile = File(..
         "cv": dto.cv.model_dump(),
         "vacancy": dto.vacancy.model_dump()
     }
+
+
+manager = ConnectionManager()
+
+@app.websocket("/interview/{user_id}")
+async def interview(websocket: WebSocket, user_id: int):
+    # Ром, все просто, тут проверка, подключен ли уже пользователь
+    if manager.is_user_connected(user_id):
+        raise WebSocketException(
+            code=status.WS_1013_TRY_AGAIN_LATER,
+            reason="User already connected. Please try again later."
+        )
+    
+    # Тут попытка подключиться
+    connected = await manager.connect(websocket, user_id)
+    if not connected:
+        raise WebSocketException(
+            code=status.WS_1013_TRY_AGAIN_LATER,
+            reason="User already connected. Please try again later."
+        )
+    #это логика-затычка, пока забей
+    try:
+        while True:
+            data = await websocket.receive_text()
+            await websocket.send_text(f"User {user_id}: {data}")
+            
+    except Exception as e:
+        print(f"Error for user {user_id}: {e}")
+    finally:
+        manager.disconnect(user_id)
