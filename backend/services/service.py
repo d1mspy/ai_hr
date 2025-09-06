@@ -8,21 +8,12 @@ class Service():
     def __init__(self, repository: Repository):
         self.repository = repository
     
-
-    async def test_post(self, testdb: str) -> None:
-        await self.repository.test_post(testdb)
-        
-    async def test_get(self) -> list | None:
-        resp = await self.repository.test_get()
-        return resp
-    
     async def compare_docs(self, cv: bytes, vacancy: bytes) -> ParsedDocsResponse:
-        
-        # try:
-        cv_md, cv_struct = await _parse_pair(cv)
-        vac_md, vac_struct = await _parse_pair(vacancy)
-        # except Exception:
-        #     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Не удалось прочитать файл резюме (.docx может быть повреждён)")
+        try:
+            cv_md, cv_struct = await _parse_pair(cv)
+            vac_md, vac_struct = await _parse_pair(vacancy)
+        except Exception:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Не удалось прочитать файл резюме (.docx может быть повреждён)")
         
         return ParsedDocsResponse(
             cv=ParsedDoc(
@@ -36,7 +27,8 @@ class Service():
                 detected_meta=vac_struct.get("detected_meta"),
             )
         )
-        
+
+# парсинг документа в два формата 
 async def _parse_pair(doc_bytes: bytes):
     md = await anyio.to_thread.run_sync(docx_to_markdown, doc_bytes)
     struct = await anyio.to_thread.run_sync(docx_to_struct, doc_bytes)

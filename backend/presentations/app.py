@@ -19,11 +19,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# тестовая pydantic модель
-class Testdb(BaseModel):
-    string: str
-
-# экземпляры тестового класса сервиса и репозитория
+# экземпляры класса сервиса и репозитория
 repository = Repository()
 service = Service(repository)
 
@@ -33,21 +29,6 @@ async def test_endpoint() -> str:
     тестовый эндпоинт
     """
     return "ok"
-
-@app.post("/test")
-async def test_post(testdb: Testdb) -> None:
-    """
-    тест базы данных
-    """
-    await service.test_post(testdb.string)
-
-@app.get("/test")
-async def test_get() -> list | None:
-    """
-    тест базы данных
-    """
-    data = await service.test_get()
-    return data
 
 @app.post("/compare", response_model=ParsedDocsResponse)
 async def compare_docs(cv: UploadFile = File(...), vacancy: UploadFile = File(...)):

@@ -1,10 +1,8 @@
 fastapi==0.115.4
-uvicorn==0.32.0
 pydantic==2.9.2
-SQLAlchemy==2.0.36
-python-dotenv==1.0.1
 pydantic_settings==2.6.0
+SQLAlchemy==2.0.36
 asyncpg==0.30.0
-mammoth==1.10.0
-python-docx==1.2.0
+python-dotenv==1.0.1
+requests==2.32.5
 python-multipart==0.0.20
