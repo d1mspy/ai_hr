@@ -139,7 +139,6 @@ class AudioConnectionManager(ConnectionManager):
                 return False
             
             try:
-                await websocket.accept()
                 self.active_connections[user_id] = websocket
                 self.connection_times[user_id] = datetime.now()
                 self.logger.info(f"User {user_id} connected successfully")

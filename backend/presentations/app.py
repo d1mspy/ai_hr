@@ -103,7 +103,7 @@ async def websocket_audio_endpoint(websocket: WebSocket, user_id: int):
         await manager.send_error(user_id, f"Connection error: {e}")
         await manager.disconnect(user_id)
 
-@app.websocket("/interview/test-audio")
+@app.websocket("/test-audio")
 async def test_audio_websocket(websocket: WebSocket):
     """
     ТЕСТОВЫЙ эндпоинт для проверки AudioConnectionManager
@@ -189,3 +189,11 @@ async def test_audio_websocket(websocket: WebSocket):
             "timestamp": datetime.now().timestamp()
         })
         await audio_manager.disconnect(user_id)
+        
+@app.websocket("/_ws_echo")
+async def ws_echo(ws: WebSocket):
+    await ws.accept()
+    await ws.send_text("ok")
+    while True:
+        msg = await ws.receive_text()
+        await ws.send_text(f"echo: {msg}")
