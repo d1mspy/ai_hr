@@ -6,7 +6,7 @@ import numpy as np
 from enum import Enum
 from typing import Dict, Optional
 import logging
-from utils.voice.сhunk_processor import chunk_processor, ChunkProcessAns
+from .voice.сhunk_processor import ChunkProcessor, ChunkProcessAns
 from datetime import datetime
 import json
 import base64
@@ -118,7 +118,7 @@ class ConnectionManager:
     
 
 class AudioConnectionManager(ConnectionManager):
-    def __init__(self, chunk_processor = chunk_processor):
+    def __init__(self, chunk_processor = ChunkProcessor):
         super().__init__()
         self.chunk_processor = chunk_processor
         self.is_session_active = False

@@ -8,7 +8,6 @@ from utils.websocket import ConnectionManager, AudioConnectionManager, MessageTy
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from repositories.db.repository import Repository
-from schemas.docs import ParsedDocsResponse
 import asyncio
 import websockets
 import json
