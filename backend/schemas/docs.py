@@ -11,4 +11,9 @@ class ParsedDoc(BaseModel):
 # ответ в виде обоих спаршенных документов
 class ParsedDocsResponse(BaseModel):
     cv: ParsedDoc
-    vacancy: ParsedDoc
+    vacancy: Dict[str, Any]
+    
+class CompareResponse(BaseModel):
+    decision: Dict[str, Any]
+    cv: str
+    vacancy: Dict[str, Any]

@@ -87,7 +87,7 @@ def docx_to_struct(docx_bytes: bytes) -> Dict[str, Any]:
     phones = re.findall(r"(?:\+?\d[\s\-()]*){7,}", full_text)
 
     return {
-        "sections": sections,
+        "sections": [],
         "detected_meta": {
             "emails": list(set(emails))[:5],
             "phones": list(set(phones))[:5]
