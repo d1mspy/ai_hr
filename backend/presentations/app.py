@@ -11,6 +11,7 @@ from repositories.db.repository import Repository
 from schemas.docs import ParsedDocsResponse
 import asyncio
 import websockets
+from datetime import datetime
 import json
 import base64
 import numpy as np
@@ -103,68 +104,89 @@ async def websocket_audio_endpoint(websocket: WebSocket, user_id: int):
         await manager.send_error(user_id, f"Connection error: {e}")
         await manager.disconnect(user_id)
 
-
-@app.post("/interview/test")
-async def test_websocket_client(request: TestWebSocketRequest):
+@app.websocket("/interview/test-audio")
+async def test_audio_websocket(websocket: WebSocket):
     """
-    Запускает тестового WebSocket клиента для проверки сервера
+    ТЕСТОВЫЙ эндпоинт для проверки AudioConnectionManager
+    Имитирует работу фронтенда - отправляет тестовые аудио данные
     """
-    try:
-        # Этот код запускает клиента в фоне
-        asyncio.create_task(run_test_client(request))
-        return {"status": "test_started", "message": "Test client running in background"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Test failed: {e}")
-
-
-@app.websocket("/interview/test")
-async def run_test_client(request: TestWebSocketRequest):
-    """Фоновая задача для тестового клиента"""
-    uri = f"http://localhost/interview/{request.user_id}"
+    await websocket.accept()
+    print("✅ Test Audio WebSocket client connected")
     
     try:
-        async with websockets.connect(uri) as websocket:
-            print("Test client connected to WebSocket server")
+        user_id = 999  # Тестовый user_id
+        
+        # 1. Подключаемся через твой менеджер
+        if not await audio_manager.connect(websocket, user_id):
+            await websocket.send_json({
+                "type": "error",
+                "error": "Connection rejected",
+                "timestamp": datetime.now().timestamp()
+            })
+            return
+        
+        # 2. Отправляем AUDIO_START
+        start_message = {
+            "type": "audio_start",
+            "user_id": user_id,
+            "timestamp": datetime.now().timestamp()
+        }
+        await websocket.send_text(json.dumps(start_message))
+        print("📨 Sent AUDIO_START")
+        
+        # 3. Отправляем тестовые аудио чанки
+        for i in range(5):
+            # Генерируем тестовый аудио сигнал (синусоида)
+            t = np.linspace(0, 0.1, 512)
+            frequency = 440 + i * 50  # Меняем частоту
+            audio_signal = np.sin(2 * np.pi * frequency * t) * 32767
+            audio_data = audio_signal.astype(np.int16)
             
-            # Отправляем AUDIO_START
-            start_message = {
-                "type": "audio_start",
-                "user_id": request.user_id,
-                "timestamp": 1234567890.0
+            audio_bytes = audio_data.tobytes()
+            audio_b64 = base64.b64encode(audio_bytes).decode('utf-8')
+            
+            chunk_message = {
+                "type": "audio_chunk",
+                "user_id": user_id,
+                "chunk": audio_b64,
+                "timestamp": datetime.now().timestamp()
             }
-            await websocket.send(json.dumps(start_message))
-            print("Sent AUDIO_START")
+            await websocket.send_text(json.dumps(chunk_message))
+            print(f"📨 Sent AUDIO_CHUNK {i+1}")
             
-            # Отправляем чанки
-            for i in range(request.chunks_count):
-                audio_data = np.random.randint(-32768, 32767, 512, dtype=np.int16)
-                audio_bytes = audio_data.tobytes()
-                audio_b64 = base64.b64encode(audio_bytes).decode('utf-8')
+            # Ждем ответа или небольшую паузу
+            try:
+                response = await asyncio.wait_for(websocket.receive_text(), timeout=0.5)
+                print(f"📩 Received: {response}")
+            except asyncio.TimeoutError:
+                pass  # Пропускаем если нет ответа
                 
-                chunk_message = {
-                    "type": "audio_chunk",
-                    "user_id": request.user_id,
-                    "chunk": audio_b64,
-                    "timestamp": 1234567890.0 + i
-                }
-                await websocket.send(json.dumps(chunk_message))
-                print(f"Sent AUDIO_CHUNK {i+1}")
-                
-                await asyncio.sleep(request.chunk_delay)
-            
-            # Завершаем сессию
-            end_message = {
-                "type": "audio_end", 
-                "user_id": request.user_id,
-                "timestamp": 1234567895.0
-            }
-            await websocket.send(json.dumps(end_message))
-            print("Sent AUDIO_END")
-            
-            # Слушаем ответы
-            async for message in websocket:
-                data = json.loads(message)
-                print(f"Server response: {data}")
-                
+            await asyncio.sleep(0.2)
+        
+        # 4. Отправляем AUDIO_END
+        end_message = {
+            "type": "audio_end",
+            "user_id": user_id,
+            "timestamp": datetime.now().timestamp()
+        }
+        await websocket.send_text(json.dumps(end_message))
+        print("📨 Sent AUDIO_END")
+        
+        # 5. Ждем финальный ответ
+        try:
+            final_response = await asyncio.wait_for(websocket.receive_text(), timeout=2.0)
+            print(f"🎉 Final response: {final_response}")
+        except asyncio.TimeoutError:
+            print("⏰ Timeout waiting for final response")
+        
+    except WebSocketDisconnect:
+        print("❌ Test client disconnected")
+        await audio_manager.disconnect(user_id)
     except Exception as e:
-        print(f"Test client error: {e}")
+        print(f"🔥 Test error: {e}")
+        await websocket.send_json({
+            "type": "error",
+            "error": f"Test error: {str(e)}",
+            "timestamp": datetime.now().timestamp()
+        })
+        await audio_manager.disconnect(user_id)
