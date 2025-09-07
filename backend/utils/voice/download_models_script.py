@@ -1,7 +1,7 @@
 import torch
 import os
 import requests
-from path_config import SILERO_TTS_MODEL_PATH, SILERO_TTS_MODEL_DIR, \
+from .path_config import SILERO_TTS_MODEL_PATH, SILERO_TTS_MODEL_DIR, \
     SILERO_VAD_MODEL_DIR, SILERO_VAD_MODEL_PATH, PARAKEET_MODEL_DIR 
 
 
@@ -10,7 +10,7 @@ if not os.path.isfile(SILERO_VAD_MODEL_PATH):
     os.makedirs(SILERO_VAD_MODEL_DIR, exist_ok=True)
     silero_vad, utils = torch.hub.load(repo_or_dir='snakers4/silero-vad',
                                 model='silero_vad',
-                                force_reload=True, 
+                                force_reload=False, 
                                 trust_repo=True, 
                                 onnx=False)         
 

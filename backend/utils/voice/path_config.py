@@ -1,9 +1,10 @@
 import os
 
-#can be changed
-SILERO_VAD_MODEL_DIR = "./silero_vad"
-SILERO_TTS_MODEL_DIR = "./silero_tts"
-PARAKEET_MODEL_DIR = "./parakeet_stt"
+MODELS_ROOT = os.getenv("MODELS_ROOT", "/models")
+
+SILERO_VAD_MODEL_DIR  = os.getenv("SILERO_VAD_MODEL_DIR",  os.path.join(MODELS_ROOT, "silero_vad"))
+SILERO_TTS_MODEL_DIR  = os.getenv("SILERO_TTS_MODEL_DIR",  os.path.join(MODELS_ROOT, "silero_tts"))
+PARAKEET_MODEL_DIR    = os.getenv("PARAKEET_MODEL_DIR",    os.path.join(MODELS_ROOT, "parakeet_stt"))
 
 
 #do not change

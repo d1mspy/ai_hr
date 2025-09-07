@@ -6,10 +6,14 @@ networks:
 services:
   backend:
     env_file: .env
+    init: true
 
     build: 
       context: backend
       dockerfile: Dockerfile
+    
+    volumes:
+      - models-data:/models
 
     depends_on:
       - postgres
@@ -59,3 +63,6 @@ services:
     
     networks:
       - devnet
+
+volumes:
+  models-data: {}
