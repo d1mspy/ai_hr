@@ -7,7 +7,19 @@ from repositories.db.user import UserRepository
 from repositories.db.repository import Repository
 from schemas.docs import ParsedDocsResponse
 import json
+#test
+# test_websocket_client.py
+import asyncio
+import json
+import base64
+import numpy as np
 
+
+class TestWebSocketRequest(BaseModel):
+    user_id: int = 123
+    chunks_count: int = 5
+    chunk_delay: float = 0.1
+    
 
 app = FastAPI(title="ВТБ хак",
               docs_url='/docs',
@@ -90,3 +102,69 @@ async def websocket_audio_endpoint(websocket: WebSocket, user_id: int):
     except Exception as e:
         await manager.send_error(user_id, f"Connection error: {e}")
         await manager.disconnect(user_id)
+
+
+@app.post("/interview/test")
+async def test_websocket_client(request: TestWebSocketRequest):
+    """
+    Запускает тестового WebSocket клиента для проверки сервера
+    """
+    try:
+        # Этот код запускает клиента в фоне
+        asyncio.create_task(run_test_client(request))
+        return {"status": "test_started", "message": "Test client running in background"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Test failed: {e}")
+
+
+@app.websocket("/interview/test")
+async def run_test_client(request: TestWebSocketRequest):
+    """Фоновая задача для тестового клиента"""
+    uri = f"http://localhost/interview/{request.user_id}"
+    
+    try:
+        async with websockets.connect(uri) as websocket:
+            print("Test client connected to WebSocket server")
+            
+            # Отправляем AUDIO_START
+            start_message = {
+                "type": "audio_start",
+                "user_id": request.user_id,
+                "timestamp": 1234567890.0
+            }
+            await websocket.send(json.dumps(start_message))
+            print("Sent AUDIO_START")
+            
+            # Отправляем чанки
+            for i in range(request.chunks_count):
+                audio_data = np.random.randint(-32768, 32767, 512, dtype=np.int16)
+                audio_bytes = audio_data.tobytes()
+                audio_b64 = base64.b64encode(audio_bytes).decode('utf-8')
+                
+                chunk_message = {
+                    "type": "audio_chunk",
+                    "user_id": request.user_id,
+                    "chunk": audio_b64,
+                    "timestamp": 1234567890.0 + i
+                }
+                await websocket.send(json.dumps(chunk_message))
+                print(f"Sent AUDIO_CHUNK {i+1}")
+                
+                await asyncio.sleep(request.chunk_delay)
+            
+            # Завершаем сессию
+            end_message = {
+                "type": "audio_end", 
+                "user_id": request.user_id,
+                "timestamp": 1234567895.0
+            }
+            await websocket.send(json.dumps(end_message))
+            print("Sent AUDIO_END")
+            
+            # Слушаем ответы
+            async for message in websocket:
+                data = json.loads(message)
+                print(f"Server response: {data}")
+                
+    except Exception as e:
+        print(f"Test client error: {e}")
