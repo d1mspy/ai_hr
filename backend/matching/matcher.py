@@ -1,10 +1,9 @@
 from typing import Dict, Any, List
 from .skills import normalize_skills
 from .score import bm25_score, fuzzy_score, coverage_score
-from .gate import hard_gate
 from .extract import estimate_total_experience, detect_english_level
 
-WEIGHTS = { "bm25":0.05, "fuzzy":0.10, "must_coverage":0.05, "nice_coverage":0.05, "experience":0.85 }
+WEIGHTS = { "bm25":0.01, "fuzzy":0.05, "must_coverage":0.10, "nice_coverage":0.10, "experience":0.85 }
 INVITE_THR = 0.65
 REJECT_THR  = 0.40
 
@@ -20,21 +19,6 @@ def decide(vac: Dict[str, Any], cv: Dict[str, Any]) -> Dict[str, Any]:
 
     # уровень английского в CV (A1..C2 или None)
     cv_en_level = detect_english_level(cv_text)
-
-    # жесткий гейт
-    gate_reasons = hard_gate(
-        must_have=vac.get("must_have", []),
-        english_min_level=vac.get("english_min_level"),
-        cv_text=cv_text,
-        cv_english_level=cv_en_level,
-    )
-    if gate_reasons:
-        return {
-            "decision": "reject",
-            "score": 0.0,
-            "reasons": gate_reasons,
-            "details": {k:0.0 for k in WEIGHTS.keys()},
-        }
 
     # similarity
     s_bm25 = bm25_score(vac_text, cv_text)
