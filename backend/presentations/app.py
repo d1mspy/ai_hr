@@ -1,11 +1,13 @@
-from fastapi import UploadFile, File, FastAPI, HTTPException, status, WebSocket, WebSocketException, status
-from utils.websocket import ConnectionManager
+from fastapi import UploadFile, File, FastAPI, HTTPException, status, WebSocket, status, WebSocketDisconnect
+from utils.websocket import ConnectionManager, AudioConnectionManager, MessageType, WSMessage
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from services.service import Service
 from repositories.db.user import UserRepository
 from repositories.db.repository import Repository
 from schemas.docs import ParsedDocsResponse
+import json
+
 
 app = FastAPI(title="ВТБ хак",
               docs_url='/docs',
@@ -53,30 +55,38 @@ async def compare_docs(cv: UploadFile = File(...), vacancy: UploadFile = File(..
 
 
 manager = ConnectionManager()
+audio_manager = AudioConnectionManager(manager)
 
 @app.websocket("/interview/{user_id}")
-async def interview(websocket: WebSocket, user_id: int):
-    # Ром, все просто, тут проверка, подключен ли уже пользователь
-    if manager.is_user_connected(user_id):
-        raise WebSocketException(
-            code=status.WS_1013_TRY_AGAIN_LATER,
-            reason="User already connected. Please try again later."
-        )
+async def websocket_audio_endpoint(websocket: WebSocket, user_id: int):
+    """Основной цикл обработки WebSocket сообщений"""
+    manager = audio_manager
     
-    # Тут попытка подключиться
-    connected = await manager.connect(websocket, user_id)
-    if not connected:
-        raise WebSocketException(
-            code=status.WS_1013_TRY_AGAIN_LATER,
-            reason="User already connected. Please try again later."
-        )
-    #это логика-затычка, пока забей
+    if not await manager.connect(websocket, user_id):
+        await websocket.close(code=1008, reason="Session already active")
+        return
+    
     try:
         while True:
             data = await websocket.receive_text()
-            await websocket.send_text(f"User {user_id}: {data}")
+            msg_data = json.loads(data)
+            msg_type = MessageType(msg_data['type'])
             
+            if msg_type == MessageType.AUDIO_START:
+                await manager.handle_audio_start(user_id, msg_data)
+                
+            elif msg_type == MessageType.AUDIO_CHUNK:
+                await manager.handle_audio_chunk(user_id, msg_data)
+                
+            elif msg_type == MessageType.AUDIO_END:
+                await manager.handle_audio_end(user_id, msg_data)
+                break
+                
+            else:
+                await manager.send_error(user_id, f"Unknown message type: {msg_type}")
+                
+    except WebSocketDisconnect:
+        await manager.disconnect(user_id)
     except Exception as e:
-        print(f"Error for user {user_id}: {e}")
-    finally:
-        manager.disconnect(user_id)
+        await manager.send_error(user_id, f"Connection error: {e}")
+        await manager.disconnect(user_id)

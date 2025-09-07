@@ -28,3 +28,5 @@ class ChunkProcessor():
                 return ChunkProcessAns(status='answer', content=phrase_text)
         except Exception as e:
             return ChunkProcessAns(status='bad', content=str(e))
+
+chunk_processor = ChunkProcessor()
