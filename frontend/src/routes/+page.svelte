@@ -29,6 +29,14 @@
   const handleResumeUpload = (event: Event): void => {
     const target = event.target as HTMLInputElement;
     const files = Array.from(target.files ?? []);
+
+      // Проверка количества файлов
+  if (files.length > 10) {
+    alert('Можно загрузить не более 10 файлов');
+    target.value = '';
+    return;
+  }
+
     const valid = files.filter(isValidFileType);
     if (valid.length !== files.length) {
       alert('Пожалуйста, загружайте только файлы в формате DOCX');
@@ -137,19 +145,25 @@
 
 <div class="container">
   <div class="column">
-    <h2 class="title">ВАКАНСИИ</h2>
+    <h2 class="title">РЕЗЮМЕ</h2>
     <label class="upload-btn" class:disabled={isLoading}>
       <input
         type="file"
+        multiple
         accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        on:change={handleVacancyUpload}
+        on:change={handleResumeUpload}
         disabled={isLoading}
       />
       <span>+ добавить</span>
     </label>
-    <p class="hint">(только DOCX)</p>
-    {#if vacancyFile}
-      <p class="file-name">{vacancyFile.name}</p>
+    <p class="hint">(только DOCX, не более 10 файлов)</p>
+    {#if resumeFiles.length > 0}
+      <p class="file-count">Выбрано файлов: {resumeFiles.length}/10</p>
+      <ul class="file-list">
+        {#each resumeFiles as f}
+          <li class="file-name">{f.name}</li>
+        {/each}
+      </ul>
     {/if}
   </div>
 
@@ -168,25 +182,20 @@
   </div>
 
   <div class="column">
-    <h2 class="title">РЕЗЮМЕ</h2>
+    <h2 class="title">ВАКАНСИИ</h2>
     <label class="upload-btn" class:disabled={isLoading}>
       <input
         type="file"
-        multiple
         accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        on:change={handleResumeUpload}
+        on:change={handleVacancyUpload}
         disabled={isLoading}
       />
       <span>+ добавить</span>
     </label>
-    <p class="hint">(только DOCX)</p>
-    {#if resumeFiles.length > 0}
-  <ul class="file-list">
-    {#each resumeFiles as f}
-      <li class="file-name">{f.name}</li>
-    {/each}
-  </ul>
-{/if}
+    <p class="hint">(только DOCX, не более 1)</p>
+    {#if vacancyFile}
+      <p class="file-name">{vacancyFile.name}</p>
+    {/if}
   </div>
 </div>
 
@@ -284,6 +293,20 @@
     color: #94a3b8;
     margin: 0;
     text-align: center;
+  }
+
+  .file-count {
+    font-size: 14px;
+    color: #475569;
+    margin: 5px 0;
+    font-weight: 500;
+  }
+
+  .file-list {
+    max-height: 150px;
+    overflow-y: auto;
+    list-style: none;
+    width: 90%;
   }
 
   .image-btn {
