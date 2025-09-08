@@ -5,7 +5,7 @@ class UserService:
         self.repository = UserRepository()
     
     async def put_user(self, json):
-        await self.repository.put_user(json=json)
+        return await self.repository.put_user(json=json)
     
     async def get_json_by_id(self, id):
         return await self.repository.get_json_by_id(user_id=id)

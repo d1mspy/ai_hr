@@ -10,11 +10,17 @@ class UserRepository:
         
     # тестовая запись
     async def put_user(self, resume:json) -> None:
-        stmp = insert(User).values({"resume": resume})
+        stmp = insert(User).values({"resume": resume}).returning(User.id)
     
         async with self._sessionmaker() as session:
-            await session.execute(stmp) 
+            result = await session.execute(stmp)
             await session.commit()
+            
+            # Получаем ID вставленной записи
+            user_id = result.scalar()
+            
+        return user_id
+    
     
     async def get_json_by_id(self, user_id) -> list | None:
         stmp = select(User.resume).where(User.id==user_id)

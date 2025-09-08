@@ -2,6 +2,7 @@ from fastapi import UploadFile, File, FastAPI, HTTPException, status, WebSocket,
 from utils.websocket import ConnectionManager
 from services.parsing_service import ParsingService
 from services.match_service import MatchService
+from services.user import UserService
 from repositories.db.repository import Repository
 from schemas.docs import CompareResponse
 from utils.websocket import ConnectionManager, AudioConnectionManager, MessageType, WSMessage
@@ -30,6 +31,7 @@ app.add_middleware(
 
 # экземпляры класса сервиса и репозитория
 repository = Repository()
+user_service = UserService()
 parsing_service = ParsingService(repository)
 matching_service = MatchService(parsing_service)
 
@@ -60,8 +62,15 @@ async def compare_docs(cv: UploadFile = File(...), vacancy: UploadFile = File(..
     dto = await matching_service.compare_docs(cv_bytes, vac_bytes)
     dto.text = text
 
-    return dto
-
+    # return dto
+    def Mitya_model(Roma_text:str):
+        return {"status":"ok","rezume+vaka": "программист бекенд джун на go, зп 70 тысяч, формат работы - офис, город Москва"}
+    
+    answer = Mitya_model(Roma_text=dto.text)
+    if answer:
+        user_id = await user_service.put_user(json = {"rezume+vaka":answer["rezume+vaka"]})
+        encrypted_user_id = user_service.get_encrypted_id(id=user_id)
+        return {"result":"ok", "url":f"http://localhost/api/interview/{encrypted_user_id}"}
 
 class TestWebSocketRequest(BaseModel):
     user_id: int = 123
@@ -73,10 +82,12 @@ manager = ConnectionManager()
 audio_manager = AudioConnectionManager(manager)
 
 @app.websocket("/interview/{user_id}")
-async def websocket_audio_endpoint(websocket: WebSocket, user_id: int):
+async def websocket_audio_endpoint(websocket: WebSocket, encrypted_user_id: int):
     """Основной цикл обработки WebSocket сообщений"""
     manager = audio_manager
-    
+    user_id = user_service.validate_user(id=encrypted_user_id)
+    if user_id is None:
+        raise Exception("No such user")
     if not await manager.connect(websocket, user_id):
         await websocket.close(code=1008, reason="Session already active")
         return
