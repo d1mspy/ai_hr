@@ -9,7 +9,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from repositories.db.repository import Repository
 import asyncio
-import websockets
 from datetime import datetime
 import json
 import base64
@@ -51,11 +50,15 @@ async def compare_docs(cv: UploadFile = File(...), vacancy: UploadFile = File(..
         if not f.filename.lower().endswith(".docx"):
             raise HTTPException(status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
                                 detail=f"Только .docx. Недопустим файл: {f.filename}")
-
+    
     cv_bytes = await cv.read()
-    vacancy_bytes = await vacancy.read()
-
-    dto = await matching_service.compare_docs(cv_bytes, vacancy_bytes)
+    vac_bytes = await vacancy.read()
+    if not cv_bytes or not vac_bytes:
+        raise HTTPException(status_code=400, detail="Один из файлов пустой")    
+        
+    text = await matching_service.docs_to_text(cv_bytes, vac_bytes)
+    dto = await matching_service.compare_docs(cv_bytes, vac_bytes)
+    dto.text = text
 
     return dto
 
@@ -190,10 +193,3 @@ async def test_audio_websocket(websocket: WebSocket):
         })
         await audio_manager.disconnect(user_id)
         
-@app.websocket("/_ws_echo")
-async def ws_echo(ws: WebSocket):
-    await ws.accept()
-    await ws.send_text("ok")
-    while True:
-        msg = await ws.receive_text()
-        await ws.send_text(f"echo: {msg}")

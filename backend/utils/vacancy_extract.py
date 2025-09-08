@@ -110,7 +110,7 @@ def _extract_skills(requirements_md: str, duties_md: str) -> Dict[str, List[str]
     nice = [s for s in nice_all if s not in must]
     return {"must_have": must, "nice_to_have": nice}
 
-def parse_vacancy_docx_to_profile(docx_bytes: bytes) -> Dict[str, Any]:
+def  parse_vacancy_docx_to_profile(docx_bytes: bytes) -> Dict[str, Any]:
     """
     Читает все таблицы DOCX вакансии (формат 'Наименование поля' / 'Значение')
     и строит профиль под мэтчер: title, description_md, must/nice, min_years_total, english_min_level.

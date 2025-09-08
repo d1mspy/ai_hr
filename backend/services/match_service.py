@@ -1,16 +1,17 @@
 from .parsing_service import ParsingService
-from schemas.docs import ParsedDocsResponse, CompareResponse
+from schemas.docs import ParsedDocsResponse, CompareResponse, ParsedText
 from matching.matcher import decide as decide_core
 
 class MatchService:
     def __init__(self, parsing_service: ParsingService):
         self.parsing = parsing_service
 
-    async def compare_docs(self, cv_bytes: str, vacancy_bytes: bytes) -> dict:
+    async def compare_docs(self, cv: bytes, vacancy: bytes) -> CompareResponse:
         # парсим оба DOCX
-        parsed: ParsedDocsResponse = await self.parsing.parse_docs(cv_bytes, vacancy_bytes)
+        parsed: ParsedDocsResponse = await self.parsing.parse_docs(cv, vacancy)
 
-        vac = {
+
+        vac = { 
             "title": parsed.vacancy.get("title") or "Vacancy",
             "description_md": parsed.vacancy.get("description_md", ""),
             "must_have": parsed.vacancy.get("must_have", []),
@@ -20,12 +21,16 @@ class MatchService:
         }
 
         cv = {
-            "markdown": parsed.cv.markdown,
+            "text": parsed.cv.text,
             "detected_meta": parsed.cv.detected_meta or {},
             "sections": parsed.cv.sections,
         }
 
         decision = decide_core(vac, cv)
-        dto = CompareResponse(decision=decision, cv=cv["markdown"], vacancy=vac)
+        dto = CompareResponse(decision=decision, vacancy=vac)
         
         return dto
+
+    async def docs_to_text(self, cv: bytes, vacancy: bytes) -> ParsedText:
+        docs_text = await self.parsing.docs_to_text(cv, vacancy)
+        return docs_text
