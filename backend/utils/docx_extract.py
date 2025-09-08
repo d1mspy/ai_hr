@@ -1,95 +1,56 @@
-from typing import List, Dict, Any
+from fastapi import HTTPException
 import mammoth
-from docx import Document
 from io import BytesIO
-
-HEADING_STYLES = {"Heading 1", "Heading 2", "Heading 3", "Заголовок 1", "Заголовок 2", "Заголовок 3"}
+import tempfile, os
+import docx2txt
+import re
+import asyncio
 
 def docx_to_markdown(docx_bytes: bytes) -> str:
     result = mammoth.convert_to_markdown(BytesIO(docx_bytes))
     md = result.value.strip()
     return md
-
-def docx_to_struct(docx_bytes: bytes) -> Dict[str, Any]:
-    # парсим структуру документа
-    doc = Document(BytesIO(docx_bytes))
     
-    # будущий JSON
-    sections: List[Dict[str, Any]] = []
-    # текущая секция
-    current = {"heading": None, "content": "", "list_items": [], "tables": []}
-    
-    # сброс текущего блока текста в список секций 
-    def flush_current():
-        nonlocal current
-        if current["heading"] or current["content"] or current["list_items"] or current["tables"]:
-            current["content"] = current["content"].strip()
-            sections.append(current)
-        current = {"heading": None, "content": "", "list_items": [], "tables": []}
+async def docx_to_txt(data: bytes) -> str:
+    if not data:
+        raise HTTPException(status_code=400, detail="Файл пустой")
 
-    # проход по документу
-    for block in doc.element.body.iterchildren():
-        tag = block.tag
-        # абзацы
-        if tag.endswith("p"):
-            p = block
-            texts = [r.text for r in p.iter() if hasattr(r, "text") and r.text]
-            text = " ".join(t.strip() for t in texts if t and t.strip())
-            if not text:
-                continue
-                
-            # проверка на начало новой секции
-            is_heading = False
-            pPr = p.find("{http://schemas.openxmlformats.org/wordprocessingml/2006/main}pPr")
-            if pPr is not None:
-                pStyle = pPr.find("{http://schemas.openxmlformats.org/wordprocessingml/2006/main}pStyle")
-                if pStyle is not None and pStyle.get("{http://schemas.openxmlformats.org/wordprocessingml/2006/main}val"):
-                    style_val = pStyle.get("{http://schemas.openxmlformats.org/wordprocessingml/2006/main}val")
-                    if style_val in HEADING_STYLES or style_val.lower().startswith("heading"):
-                        is_heading = True
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".docx")
+    try:
+        tmp.write(data)
+        tmp.flush()
+        tmp.close()
+        text = await asyncio.to_thread(docx2txt.process, tmp.name)
+        text = (text or "").replace("\r\n", "\n").replace("\r", "\n")
+        return _clean_text(text)
+    finally:
+        try:
+            os.remove(tmp.name)
+        except OSError:
+            pass
 
-            # списки (через numbering properties)
-            numPr = pPr.find("{http://schemas.openxmlformats.org/wordprocessingml/2006/main}numPr") if pPr is not None else None
-            if is_heading:
-                flush_current()
-                current["heading"] = text
-            elif numPr is not None:
-                current["list_items"].append(text)
-            else:
-                if current["content"]:
-                    current["content"] += "\n" + text
-                else:
-                    current["content"] = text
-        
-        # вытяжка таблицы в список строк/столбцов
-        elif tag.endswith("tbl"):
-            rows = []
-            for tr in block.iter("{http://schemas.openxmlformats.org/wordprocessingml/2006/main}tr"):
-                cells = []
-                for tc in tr.iter("{http://schemas.openxmlformats.org/wordprocessingml/2006/main}tc"):
-                    cell_texts = [r.text for r in tc.iter() if hasattr(r, "text") and r.text]
-                    cells.append(" ".join(t.strip() for t in cell_texts if t and t.strip()))
-                if any(cells):
-                    rows.append(cells)
-            if rows:
-                current["tables"].append(rows)
 
-    flush_current()
-    
-    # простая метадата (email/phone)
-    full_text = "\n".join(
-        [sec["heading"] or "" for sec in sections] +
-        [sec["content"] for sec in sections if sec["content"]] +
-        sum([sec["list_items"] for sec in sections], [])
-    )
-    import re
-    emails = re.findall(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", full_text)
-    phones = re.findall(r"(?:\+?\d[\s\-()]*){7,}", full_text)
+def _clean_text(text: str) -> str:
+  
+    # нормализуем переводы строк и неразрывные пробелы
+    text = text.replace('\r\n', '\n').replace('\r', '\n').replace('\u00A0', ' ')
 
-    return {
-        "sections": [],
-        "detected_meta": {
-            "emails": list(set(emails))[:5],
-            "phones": list(set(phones))[:5]
-        }
-    }
+    # email, телефоны, URLs
+    text = re.sub(r'\b\S+@\S+\b', '', text)
+    text = re.sub(r'\bhttps?://\S+|www\.\S+\b', '', text)
+    text = re.sub(r'\b\+?[78]?\s?\(?\d{3}\)?[\s-]?\d{3}[\s-]?\d{2}[\s-]?\d{2}\b', '', text)
+
+    # номера страниц и мусор
+    text = re.sub(r'(?i)Page\s+\d+\s+of\s+\d+', '', text)
+    text = re.sub(r'(?i)Страница\s+\d+\s+из\s+\d+', '', text)
+
+    # спецсимволы (оставляем буквы/цифры, пробел, таб, перевод строки и базовую пунктуацию)
+    text = re.sub(r'[^\w \t\n.,!?;:()\-+]', '', text)
+
+    # множественные пробелы
+    text = re.sub(r'[ \u00A0]{2,}', ' ', text)
+
+    # убрать пустые строки
+    text = re.sub(r'\n{2,}', '\n', text)
+
+    return text.strip()

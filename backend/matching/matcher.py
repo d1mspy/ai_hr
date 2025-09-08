@@ -15,7 +15,7 @@ def decide(vac: Dict[str, Any], cv: Dict[str, Any]) -> Dict[str, Any]:
       markdown, (sections?, detected_meta?) - еще не реализовано
     """
     vac_text = f"{vac.get('title','')}\n{vac.get('description_md','')}"
-    cv_text  = cv["markdown"]
+    cv_text  = cv["text"]
 
     # уровень английского в CV (A1..C2 или None)
     cv_en_level = detect_english_level(cv_text)
