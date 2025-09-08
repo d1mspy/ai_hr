@@ -36,16 +36,14 @@ def _clean_text(text: str) -> str:
     text = text.replace('\r\n', '\n').replace('\r', '\n').replace('\u00A0', ' ')
 
     # email, телефоны, URLs
-    text = re.sub(r'\b\S+@\S+\b', '', text)
     text = re.sub(r'\bhttps?://\S+|www\.\S+\b', '', text)
-    text = re.sub(r'\b\+?[78]?\s?\(?\d{3}\)?[\s-]?\d{3}[\s-]?\d{2}[\s-]?\d{2}\b', '', text)
 
     # номера страниц и мусор
     text = re.sub(r'(?i)Page\s+\d+\s+of\s+\d+', '', text)
     text = re.sub(r'(?i)Страница\s+\d+\s+из\s+\d+', '', text)
 
     # спецсимволы (оставляем буквы/цифры, пробел, таб, перевод строки и базовую пунктуацию)
-    text = re.sub(r'[^\w \t\n.,!?;:()\-+]', '', text)
+    text = re.sub(r'[^\w \t\n.,!?;:()\-+@]', '', text)
 
     # множественные пробелы
     text = re.sub(r'[ \u00A0]{2,}', ' ', text)

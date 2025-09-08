@@ -1,12 +1,11 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from typing import Any, Dict, List
 
 # спаршенный документ в md и json(sections)
 # detected_meta - email и телефон
 class ParsedDoc(BaseModel):
     text: str
-    sections: List[Dict[str, Any]]
-    detected_meta: Dict[str, Any] | None = None
+    contacts: Dict[str, Any] | None = None
     
 class ParsedText(BaseModel):
     cv_text: str | None = None

@@ -22,11 +22,11 @@ class MatchService:
 
         cv = {
             "text": parsed.cv.text,
-            "detected_meta": parsed.cv.detected_meta or {},
-            "sections": parsed.cv.sections,
+            "detected_meta": parsed.cv.contacts or {},
         }
 
         decision = decide_core(vac, cv)
+        decision["contacts"] = parsed.cv.contacts
         dto = CompareResponse(decision=decision, vacancy=vac)
         
         return dto

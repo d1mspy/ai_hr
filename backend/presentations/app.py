@@ -2,6 +2,7 @@ from fastapi import UploadFile, File, FastAPI, HTTPException, status, WebSocket,
 from utils.websocket import ConnectionManager
 from services.parsing_service import ParsingService
 from services.match_service import MatchService
+from services.llm_compare_service import LLMCompareService
 from repositories.db.repository import Repository
 from schemas.docs import CompareResponse
 from utils.websocket import ConnectionManager, AudioConnectionManager, MessageType, WSMessage
@@ -32,6 +33,7 @@ app.add_middleware(
 repository = Repository()
 parsing_service = ParsingService(repository)
 matching_service = MatchService(parsing_service)
+llm_compare_service = LLMCompareService()
 
 @app.get("/")
 async def test_endpoint() -> str:
@@ -59,6 +61,9 @@ async def compare_docs(cv: UploadFile = File(...), vacancy: UploadFile = File(..
     text = await matching_service.docs_to_text(cv_bytes, vac_bytes)
     dto = await matching_service.compare_docs(cv_bytes, vac_bytes)
     dto.text = text
+    
+    # if dto.decision["decision"] != "reject":
+    #     dto = await llm_compare_service.compare(dto.text)
 
     return dto
 
