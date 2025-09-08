@@ -1,16 +1,15 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  
-  let vacancyFile: File | null = null;
-  let resumeFile: File | null = null;
-  let isLoading: boolean = false;
-  let progress: number = 0;
 
-  // это для проверки формата файла (пока только DOCX)
-  const isValidFileType = (file: File): boolean => {
-    return file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
-           file.name.toLowerCase().endsWith('.docx');
-  };
+  let vacancyFile: File | null = null;
+  let resumeFiles: File[] = []; // несколько резюме
+  let isLoading = false;
+  let progress = 0;
+
+  // DOCX-валидатор
+  const isValidFileType = (file: File): boolean =>
+    file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+    file.name.toLowerCase().endsWith('.docx');
 
   const navigateToResults = () => {
     window.location.href = '/results';
@@ -19,7 +18,6 @@
   const handleVacancyUpload = (event: Event): void => {
     const target = event.target as HTMLInputElement;
     const file = target.files?.[0];
-    
     if (file && isValidFileType(file)) {
       vacancyFile = file;
     } else {
@@ -30,47 +28,109 @@
 
   const handleResumeUpload = (event: Event): void => {
     const target = event.target as HTMLInputElement;
-    const file = target.files?.[0];
-    
-    if (file && isValidFileType(file)) {
-      resumeFile = file;
-    } else {
+    const files = Array.from(target.files ?? []);
+    const valid = files.filter(isValidFileType);
+    if (valid.length !== files.length) {
       alert('Пожалуйста, загружайте только файлы в формате DOCX');
       target.value = '';
+      resumeFiles = [];
+      return;
     }
+    resumeFiles = valid;
+  };
+
+  type BackendDecision = {
+    decision: 'reject' | string; // любые иные значения трактуем как "собеседование"
+    score: number;               // 0..1
+    reasons?: string[];
+    details?: Record<string, unknown>;
+  };
+
+  type CompareResponse = {
+    decision: BackendDecision | Record<string, never>;
+    vacancy: Record<string, unknown>;
+    text: { cv_text: string; vac_text: string };
+  };
+
+  type UIResult = {
+    id: number;
+    fileName: string;
+    verdict: 'собеседование' | 'отказ';
+    comment: string;
+    score: number; // 0..100
   };
 
   const startComparison = async (): Promise<void> => {
-    if (!vacancyFile || !resumeFile) {
-      alert('Пожалуйста, загрузите оба файла перед сравнением');
+    if (!vacancyFile || resumeFiles.length === 0) {
+      alert('Загрузите вакансию и хотя бы одно резюме');
       return;
     }
 
     isLoading = true;
     progress = 0;
 
-    // анимация до 100%
-    const animateProgress = () => {
-      const targetProgress = 100;
-      const step = 2;
-      
-      const interval = setInterval(() => {
-        if (progress < targetProgress) {
-          progress += step;
-          if (progress > targetProgress) {
-            progress = targetProgress;
-          }
-        } else {
-          clearInterval(interval);
+    const results: UIResult[] = [];
+    const total = resumeFiles.length;
 
-		  setTimeout(() => {
-            navigateToResults();
-          }, 500);
+    // Последовательно (проще контролировать прогресс). Можно легко распараллелить при желании.
+    for (let i = 0; i < total; i++) {
+      const cvFile = resumeFiles[i];
+
+      const form = new FormData();
+      // ВАЖНО: сначала cv, потом vacancy
+      form.append('cv', cvFile, cvFile.name);
+      form.append('vacancy', vacancyFile, vacancyFile.name);
+
+      try {
+        const resp = await fetch('/api/compare', {
+          method: 'POST',
+          body: form,
+        });
+
+        if (!resp.ok) {
+          throw new Error(`HTTP ${resp.status}`);
         }
-      }, 50);
-    };
 
-    animateProgress();
+        const data: CompareResponse = await resp.json();
+
+        const dec = (data?.decision ?? {}) as BackendDecision;
+        const isReject = dec.decision === 'reject';
+        const verdict: UIResult['verdict'] = isReject ? 'отказ' : 'собеседование';
+        const comment =
+          verdict === 'собеседование'
+            ? 'здесь должна быть ссылка'
+            : Array.isArray(dec.reasons) && dec.reasons.length > 0
+              ? dec.reasons.join('; ')
+              : 'Причины не указаны';
+
+        const score = Math.round(((dec.score ?? 0) as number) * 100);
+
+        results.push({
+          id: i + 1,
+          fileName: cvFile.name,
+          verdict,
+          comment,
+          score,
+        });
+      } catch (e: any) {
+        results.push({
+          id: i + 1,
+          fileName: cvFile.name,
+          verdict: 'отказ',
+          comment: `Ошибка запроса: ${e?.message ?? e}`,
+          score: 0,
+        });
+      } finally {
+        // Простой прогресс по числу обработанных резюме
+        progress = Math.min(100, Math.round(((i + 1) / total) * 100));
+      }
+    }
+
+    // Сохраняем результаты для страницы /results
+    sessionStorage.setItem('aihr_results', JSON.stringify(results));
+
+    // Небольшая пауза для UX, затем переход
+    setTimeout(() => navigateToResults(), 300);
   };
 </script>
 
@@ -112,6 +172,7 @@
     <label class="upload-btn" class:disabled={isLoading}>
       <input
         type="file"
+        multiple
         accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         on:change={handleResumeUpload}
         disabled={isLoading}
@@ -119,9 +180,13 @@
       <span>+ добавить</span>
     </label>
     <p class="hint">(только DOCX)</p>
-    {#if resumeFile}
-      <p class="file-name">{resumeFile.name}</p>
-    {/if}
+    {#if resumeFiles.length > 0}
+  <ul class="file-list">
+    {#each resumeFiles as f}
+      <li class="file-name">{f.name}</li>
+    {/each}
+  </ul>
+{/if}
   </div>
 </div>
 

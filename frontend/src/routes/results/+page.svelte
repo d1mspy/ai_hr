@@ -1,34 +1,25 @@
 <script lang="ts">
-  const results = [
-    {
-      id: 1,
-      fileName: 'резюме_иванов.docx',
-      verdict: 'собеседование' as const,
-      comment: 'https://server/interview?id=1',
-      score: 87
-    },
-    {
-      id: 2,
-      fileName: 'резюме_петров.docx',
-      verdict: 'отказ' as const,
-      comment: 'Недостаточный опыт работы',
-      score: 42
-    },
-    {
-      id: 3,
-      fileName: 'резюме_сидоров.docx',
-      verdict: 'собеседование' as const,
-      comment: 'https://server/interview?id=3',
-      score: 91
-    },
-    {
-      id: 4,
-      fileName: 'резюме_смирнова.docx',
-      verdict: 'отказ' as const,
-      comment: 'Несоответствие требованиям вакансии',
-      score: 35
+  type UIResult = {
+    id: number;
+    fileName: string;
+    verdict: 'собеседование' | 'отказ';
+    comment: string; // ссылка-заглушка или причины
+    score: number;   // 0..100
+  };
+
+  let results: UIResult[] = [];
+
+  // Загружаем, если пусто — оставим [] (таблица просто будет пустой)
+  const loadResults = () => {
+    try {
+      const raw = sessionStorage.getItem('aihr_results');
+      results = raw ? (JSON.parse(raw) as UIResult[]) : [];
+    } catch {
+      results = [];
     }
-  ];
+  };
+
+  loadResults();
 
   const copyToClipboard = (text: string): void => {
     navigator.clipboard.writeText(text).then(() => {
@@ -40,6 +31,7 @@
     window.location.href = '/';
   };
 </script>
+
 
 <svelte:head>
   <title>Результаты анализа - AI-HR</title>
