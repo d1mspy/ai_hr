@@ -1,40 +1,327 @@
 <script lang="ts">
-	let inputValue = '';
-	let responseText = '';
+  import { onMount } from 'svelte';
+  
+  let vacancyFile: File | null = null;
+  let resumeFile: File | null = null;
+  let isLoading: boolean = false;
+  let progress: number = 0;
 
-	async function sendPost() {
-		try {
-			const res = await fetch('/api/test', {
-				method: 'POST',
-				headers: {
-					'Content-Type': 'application/json'
-				},
-				body: JSON.stringify({ string: inputValue })
-			});
-			const json = await res.json();
-			responseText = JSON.stringify(json);
-		} catch (err) {
-			responseText = 'Ошибка при POST-запросе';
-		}
-	}
+  // это для проверки формата файла (пока только DOCX)
+  const isValidFileType = (file: File): boolean => {
+    return file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+           file.name.toLowerCase().endsWith('.docx');
+  };
 
-	async function sendGet() {
-		try {
-			const res = await fetch('/api/test');
-			const json = await res.json();
-			responseText = JSON.stringify(json);
-		} catch (err) {
-			responseText = 'Ошибка при GET-запросе';
-		}
-	}
+  const navigateToResults = () => {
+    window.location.href = '/results';
+  };
+
+  const handleVacancyUpload = (event: Event): void => {
+    const target = event.target as HTMLInputElement;
+    const file = target.files?.[0];
+    
+    if (file && isValidFileType(file)) {
+      vacancyFile = file;
+    } else {
+      alert('Пожалуйста, загружайте только файлы в формате DOCX');
+      target.value = '';
+    }
+  };
+
+  const handleResumeUpload = (event: Event): void => {
+    const target = event.target as HTMLInputElement;
+    const file = target.files?.[0];
+    
+    if (file && isValidFileType(file)) {
+      resumeFile = file;
+    } else {
+      alert('Пожалуйста, загружайте только файлы в формате DOCX');
+      target.value = '';
+    }
+  };
+
+  const startComparison = async (): Promise<void> => {
+    if (!vacancyFile || !resumeFile) {
+      alert('Пожалуйста, загрузите оба файла перед сравнением');
+      return;
+    }
+
+    isLoading = true;
+    progress = 0;
+
+    // анимация до 100%
+    const animateProgress = () => {
+      const targetProgress = 100;
+      const step = 2;
+      
+      const interval = setInterval(() => {
+        if (progress < targetProgress) {
+          progress += step;
+          if (progress > targetProgress) {
+            progress = targetProgress;
+          }
+        } else {
+          clearInterval(interval);
+
+		  setTimeout(() => {
+            navigateToResults();
+          }, 500);
+        }
+      }, 50);
+    };
+
+    animateProgress();
+  };
 </script>
 
-<div style="display: flex; gap: 0.5rem; align-items: center;">
-	<input bind:value={inputValue} placeholder="Введите что-нибудь" />
-	<button on:click={sendPost}>Post</button>
+
+<div class="container">
+  <div class="column">
+    <h2 class="title">ВАКАНСИИ</h2>
+    <label class="upload-btn" class:disabled={isLoading}>
+      <input
+        type="file"
+        accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        on:change={handleVacancyUpload}
+        disabled={isLoading}
+      />
+      <span>+ добавить</span>
+    </label>
+    <p class="hint">(только DOCX)</p>
+    {#if vacancyFile}
+      <p class="file-name">{vacancyFile.name}</p>
+    {/if}
+  </div>
+
+  <div class="center">
+    <button class="image-btn" on:click={startComparison} disabled={isLoading}>
+      {#if isLoading}
+        <div class="loader">
+          <div class="spinner"></div>
+          <span class="progress-text">{progress}%</span>
+        </div>
+      {:else}
+        <img src="/comparison-icon.png" alt="Сравнить вакансии и резюме" />
+      {/if}
+    </button>
+    <p class="center-hint">Нажмите для сравнения</p>
+  </div>
+
+  <div class="column">
+    <h2 class="title">РЕЗЮМЕ</h2>
+    <label class="upload-btn" class:disabled={isLoading}>
+      <input
+        type="file"
+        accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        on:change={handleResumeUpload}
+        disabled={isLoading}
+      />
+      <span>+ добавить</span>
+    </label>
+    <p class="hint">(только DOCX)</p>
+    {#if resumeFile}
+      <p class="file-name">{resumeFile.name}</p>
+    {/if}
+  </div>
 </div>
 
-<div style="margin-top: 1rem;">
-	<button on:click={sendGet}>Get</button>
-	<p>Ответ: {responseText}</p>
-</div>
+<style>
+  :global(body) {
+    margin: 0;
+    padding: 0;
+    font-family: 'Inter', sans-serif;
+    background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  }
+
+  .container {
+    display: flex;
+    align-items: center;
+    gap: 80px;
+    padding: 60px;
+    background: white;
+    border-radius: 24px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+    max-width: 900px;
+    width: 100%;
+  }
+
+  .column {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 20px;
+    min-width: 200px;
+    flex: 1;
+  }
+
+  .center {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: 15px;
+  }
+
+  .title {
+    font-size: 24px;
+    font-weight: 700;
+    color: #2d3748;
+    margin: 0;
+    text-align: center;
+  }
+
+  .upload-btn {
+    position: relative;
+    cursor: pointer;
+    padding: 16px 32px;
+    background: #f8fafc;
+    border: 2px dashed #cbd5e1;
+    border-radius: 12px;
+    transition: all 0.3s ease;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 60px;
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .upload-btn:hover:not(.disabled) {
+    background: #f1f5f9;
+    border-color: #94a3b8;
+    transform: translateY(-2px);
+  }
+
+  .upload-btn.disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  .upload-btn span {
+    color: #64748b;
+    font-weight: 600;
+    font-size: 18px;
+  }
+
+  .upload-btn input {
+    position: absolute;
+    opacity: 0;
+    width: 100%;
+    height: 100%;
+    top: 0;
+    left: 0;
+    cursor: pointer;
+  }
+
+  .hint {
+    font-size: 14px;
+    color: #94a3b8;
+    margin: 0;
+    text-align: center;
+  }
+
+  .image-btn {
+    border: none;
+    background: none;
+    cursor: pointer;
+    padding: 0;
+    border-radius: 50%;
+    transition: transform 0.3s ease;
+    width: 120px;
+    height: 120px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+    position: relative;
+    overflow: hidden;
+  }
+
+  .image-btn:hover:not(:disabled) {
+    transform: scale(1.08);
+  }
+
+  .image-btn:disabled {
+    cursor: wait;
+  }
+
+  .image-btn img {
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    object-fit: cover;
+  }
+
+  .loader {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+  }
+
+  .spinner {
+    width: 40px;
+    height: 40px;
+    border: 3px solid #f1f5f9;
+    border-top: 3px solid #3b82f6;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+  }
+
+  .progress-text {
+    font-size: 14px;
+    font-weight: 600;
+    color: #3b82f6;
+  }
+
+  .center-hint {
+    font-size: 14px;
+    color: #64748b;
+    margin: 0;
+    text-align: center;
+    font-weight: 500;
+  }
+
+  .file-name {
+    font-size: 14px;
+    color: #475569;
+    margin: 10px 0 0 0;
+    text-align: center;
+    max-width: 180px;
+    word-break: break-word;
+    font-weight: 500;
+  }
+
+  @keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
+
+  /* Адаптивность */
+  @media (max-width: 768px) {
+    .container {
+      flex-direction: column;
+      gap: 40px;
+      padding: 30px;
+    }
+    
+    .center {
+      order: -1;
+    }
+    
+    .image-btn {
+      width: 100px;
+      height: 100px;
+    }
+    
+    .spinner {
+      width: 30px;
+      height: 30px;
+    }
+  }
+</style>
