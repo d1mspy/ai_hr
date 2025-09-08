@@ -7,8 +7,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-SECRET_PASSWORD = os.getenv("SERCRET_PASSWORD")
-SALT = os.getenv("SALT") 
+SECRET_PASSWORD = bytes(str(os.getenv("SECRET_PASSWORD")), "utf-8")
+SALT = bytes(str(os.getenv("SALT")), "utf-8")
 def derive_key(password: bytes, salt: bytes) -> bytes:
     """Производный ключ из пароля и соли используя KDF"""
     kdf = PBKDF2HMAC(
@@ -61,7 +61,7 @@ async def decrypt_user_id(token: str) -> int:
     # Дешифруем
     decrypted_data = cipher_suite.decrypt(encrypted_data)
     # Преобразуем bytes обратно в int
-    user_id = int(decrypted_data.decode('utf-8'))
+    user_id = int(decrypted_data.decode('utf-8')[-1])
     return user_id
 
 # Пример использования

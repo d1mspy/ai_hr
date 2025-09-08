@@ -1,4 +1,4 @@
-from fastapi import UploadFile, File, FastAPI, HTTPException, status, WebSocket, WebSocketException, WebSocketDisconnect
+from fastapi import UploadFile, File, Path, FastAPI, HTTPException, status, WebSocket, WebSocketException, WebSocketDisconnect
 from utils.websocket import ConnectionManager
 from services.parsing_service import ParsingService
 from services.match_service import MatchService
@@ -65,14 +65,15 @@ async def compare_docs(cv: UploadFile = File(...), vacancy: UploadFile = File(..
     dto.text = text
 
     # return dto
-    def Mitya_model(Roma_text:str):
-        return {"status":"ok","rezume+vaka": "программист бекенд джун на go, зп 70 тысяч, формат работы - офис, город Москва"}
-    
-    answer = Mitya_model(Roma_text=dto.text)
-    if answer:
-        user_id = await user_service.put_user(json = {"rezume+vaka":answer["rezume+vaka"]})
-        encrypted_user_id = user_service.get_encrypted_id(id=user_id)
-        return {"result":"ok", "url":f"http://localhost/api/interview/{encrypted_user_id}"}
+    if dto.decision["decision"] != "reject":
+        llm_dto = await llm_compare_service.compare(dto.text)
+        return llm_dto
+
+    return dto
+    # if answer:
+    #     user_id = await user_service.put_user(json = {"rezume+vaka":answer["rezume+vaka"]})
+    #     encrypted_user_id = user_service.get_encrypted_id(id=user_id)
+    #     return {"result":"ok", "url":f"http://localhost/api/interview/{encrypted_user_id}"}
 
 class TestWebSocketRequest(BaseModel):
     user_id: int = 123
@@ -83,13 +84,16 @@ class TestWebSocketRequest(BaseModel):
 manager = ConnectionManager()
 audio_manager = AudioConnectionManager(manager)
 
-@app.websocket("/interview/{user_id}")
-async def websocket_audio_endpoint(websocket: WebSocket, encrypted_user_id: int):
+@app.websocket("/interview/{encrypted_user_id}")
+async def websocket_audio_endpoint(websocket: WebSocket, encrypted_user_id: str = Path(...)):
     """Основной цикл обработки WebSocket сообщений"""
     manager = audio_manager
-    user_id = user_service.validate_user(id=encrypted_user_id)
+    user_id = await user_service.validate_user(id=encrypted_user_id)
     if user_id is None:
         raise Exception("No such user")
+    
+    await websocket.accept()
+    
     if not await manager.connect(websocket, user_id):
         await websocket.close(code=1008, reason="Session already active")
         return
@@ -205,4 +209,14 @@ async def test_audio_websocket(websocket: WebSocket):
             "timestamp": datetime.now().timestamp()
         })
         await audio_manager.disconnect(user_id)
-        
+
+# class user_id(BaseModel):
+#     number: int
+# class encrypted(BaseModel):
+#     user_id: str
+# from utils.encrypt_id import encrypt_user_id
+# @app.post("/encrypt", response_model=encrypted)
+# async def encrypt(id: user_id):
+#     dto = await encrypt_user_id(id)
+#     resp = encrypted(user_id=dto)
+#     return resp
