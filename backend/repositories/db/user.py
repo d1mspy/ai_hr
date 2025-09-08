@@ -1,6 +1,6 @@
 from persistent.db.tables import User
 from infrastructure.db.connect import pg_connection
-from sqlalchemy import insert, select, update, delete
+from sqlalchemy import insert, select, update, delete, exists
 import json
 
 
@@ -29,3 +29,12 @@ class UserRepository:
 
         result = row[0]
         return result
+    
+    async def check_user(self, user_id):
+        stmp = select(exists().where(User.id == user_id))
+        
+        async with self._sessionmaker() as session:
+            result = await session.execute(stmp)
+            exists_flag = result.scalar()  # Возвращает True/False
+            
+        return bool(exists_flag)
