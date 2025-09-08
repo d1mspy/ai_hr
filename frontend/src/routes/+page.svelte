@@ -127,9 +127,6 @@
 
 <style>
   :global(body) {
-    margin: 0;
-    padding: 0;
-    font-family: 'Inter', sans-serif;
     background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
     min-height: 100vh;
     display: flex;
