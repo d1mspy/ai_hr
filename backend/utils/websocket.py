@@ -4,20 +4,15 @@ import asyncio
 from pydantic import BaseModel
 import numpy as np
 from enum import Enum
-from typing import Dict, Optional
 import logging
 from .voice.сhunk_processor import ChunkProcessor, ChunkProcessAns
 from handling_llm import ResponseStatus, InterviewResponse
 from typing import Dict, List, Optional, Callable
-import asyncio
 from utils.voice.voice_generator import VoiceGenerator
 import json
 import base64
-import numpy as np
 from datetime import datetime
-from datetime import datetime
-import json
-import base64
+import torch
 
 class MessageType(str, Enum):
     AUDIO_START = "audio_start"
@@ -27,6 +22,8 @@ class MessageType(str, Enum):
     PROCESSING_END = "processing_end"
     PROCESSING_RESULT = "processing_result"
     ERROR = "error"
+    LLM_RESPONSE = "llm_response"  # Новый тип для ответов LLM
+    AUDIO_RESPONSE = "audio_response"  # Новый тип для аудио ответов
 
 class WSMessage(BaseModel):
     type: MessageType
@@ -35,6 +32,7 @@ class WSMessage(BaseModel):
     chunk: Optional[bytes] = None
     timestamp: float
 
+# Инициализация голосового генератора (должна быть где-то в конфигурации)
 voice_generator = VoiceGenerator()
 
 class ConnectionManager:
@@ -129,13 +127,13 @@ class ConnectionManager:
 class AudioConnectionManager(ConnectionManager):
     def __init__(self, 
                  chunk_processor: ChunkProcessor, 
-                 llm_model,  # ⭐⭐ Только модель, не интервьюер ⭐⭐
+                 llm_model,  # Модель LLM
                  process_text_callback: Optional[Callable] = None):
         super().__init__()
-        self.voice_generator = voice_generator
-        self.chunk_processor = chunk_processor
-        self.llm_model = llm_model  # Сохраняем только модель
-        self.process_text_callback = process_text_callback
+        self.voice_generator = voice_generator  # Генератор голоса
+        self.chunk_processor = chunk_processor  # Процессор аудио чанков
+        self.llm_model = llm_model  # Модель LLM
+        self.process_text_callback = process_text_callback  # Колбэк для обработки текста
         
         self.is_session_active = False
         self.session_start_time = None
@@ -206,28 +204,52 @@ class AudioConnectionManager(ConnectionManager):
             # Отправляем распознанный текст клиенту
             await self.send_message(user_id, json.dumps({
                 'type': MessageType.PROCESSING_RESULT,
-                'status': 'success',
+                'status': 'partial',
                 'text': result.content,
                 'full_text': self.current_interview_text.strip(),
                 'timestamp': datetime.now().timestamp()
             }))
             
-            # ⭐⭐ ГЕНЕРАЦИЯ АУДИО ИЗ НАКОПЛЕННОГО ТЕКСТА ⭐⭐
-            if self.awaiting_user_response and self.pending_user_response.strip():
-                try:
-                    # Генерируем аудио из всего накопленного текста
-                    await self.send_llm_response_in_audio(
-                        user_id=user_id,
-                        response_text=self.pending_user_response.strip()
-                    )
-                except Exception as e:
-                    self.logger.error(f"Audio generation failed: {e}")
+        elif result.status == 'stop_answer':
+            # ⭐⭐ ФИНАЛЬНЫЙ ТЕКСТ - ОТПРАВЛЯЕМ В LLM ⭐⭐
+            self.pending_user_response += result.content + " "
+            self.current_interview_text += result.content + " "
+            
+            # Отправляем финальный распознанный текст клиенту
+            await self.send_message(user_id, json.dumps({
+                'type': MessageType.PROCESSING_RESULT,
+                'status': 'final',
+                'text': result.content,
+                'full_text': self.current_interview_text.strip(),
+                'timestamp': datetime.now().timestamp()
+            }))
+            
+            # ⭐⭐ ВЫЗОВ КОЛБЭКА ДЛЯ ОБРАБОТКИ ТЕКСТА (LLM) ⭐⭐
+            if self.process_text_callback and self.awaiting_user_response:
+                llm_response = await self.process_text_callback(
+                    user_id=user_id,
+                    text=self.pending_user_response.strip(),
+                    llm_model=self.llm_model,
+                    connection_manager=self
+                )
+                
+                # Отправляем текстовый ответ LLM
+                await self.send_message(user_id, json.dumps({
+                    'type': MessageType.LLM_RESPONSE,
+                    'text': llm_response.text,
+                    'current_topic': llm_response.current_topic,
+                    'timestamp': datetime.now().timestamp()
+                }))
+                
+                # Генерируем аудио из ответа LLM и отправляем
+                await self.send_llm_response_in_audio(user_id, llm_response.text)
                 
                 self.pending_user_response = ""  # Сбрасываем накопленный текст
             
         elif result.status == 'bad':
             await self.send_error(user_id, f"Model error: {result.content}")
             await self.force_end_session()
+
     async def send_llm_response_in_audio(self, user_id: int, response_text: str):
         """Генерация аудио и отправка чанков через вебсокет"""
         if not self.is_user_connected(user_id):
@@ -241,8 +263,23 @@ class AudioConnectionManager(ConnectionManager):
             audio_numpy = audio_tensor.numpy().astype(np.int16)
             audio_bytes = audio_numpy.tobytes()
             
-            # ⭐⭐ ОТПРАВЛЯЕМ АУДИО ЧАНКИ ⭐⭐
-            await self.send_bytes(user_id, audio_bytes)
+            # Разбиваем на чанки для отправки
+            chunk_size = 512  # Размер чанка
+            for i in range(0, len(audio_bytes), chunk_size):
+                chunk = audio_bytes[i:i+chunk_size]
+                
+                # Отправляем чанк аудио
+                await self.send_bytes(user_id, chunk)
+                
+                # Небольшая задержка для избежания перегрузки
+                await asyncio.sleep(0.01)
+            
+            # Отправляем сообщение о завершении аудио
+            await self.send_message(user_id, json.dumps({
+                'type': MessageType.AUDIO_RESPONSE,
+                'status': 'completed',
+                'timestamp': datetime.now().timestamp()
+            }))
             
             return True
             
@@ -255,14 +292,25 @@ class AudioConnectionManager(ConnectionManager):
         if not self.is_session_active or user_id != self.active_user_id:
             return
             
-        # ⭐⭐ ОБРАБАТЫВАЕМ ПОСЛЕДНИЙ НАКОПЛЕННЫЙ ТЕКСТ ⭐⭐
+        # ОБРАБАТЫВАЕМ ПОСЛЕДНИЙ НАКОПЛЕННЫЙ ТЕКСТ
         if self.pending_user_response.strip() and self.process_text_callback and self.awaiting_user_response:
-            await self.process_text_callback(
+            llm_response = await self.process_text_callback(
                 user_id=user_id,
                 text=self.pending_user_response.strip(),
                 llm_model=self.llm_model,
                 connection_manager=self
             )
+            
+            # Отправляем текстовый ответ LLM
+            await self.send_message(user_id, json.dumps({
+                'type': MessageType.LLM_RESPONSE,
+                'text': llm_response.text,
+                'current_topic': llm_response.current_topic,
+                'timestamp': datetime.now().timestamp()
+            }))
+            
+            # Генерируем аудио из ответа LLM и отправляем
+            await self.send_llm_response_in_audio(user_id, llm_response.text)
         
         await self.force_end_session()
         
