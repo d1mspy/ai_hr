@@ -7,6 +7,14 @@ from enum import Enum
 from typing import Dict, Optional
 import logging
 from .voice.сhunk_processor import ChunkProcessor, ChunkProcessAns
+from handling_llm import ResponseStatus, InterviewResponse
+from typing import Dict, List, Optional, Callable
+import asyncio
+from utils.voice.voice_generator import VoiceGenerator
+import json
+import base64
+import numpy as np
+from datetime import datetime
 from datetime import datetime
 import json
 import base64
@@ -26,6 +34,8 @@ class WSMessage(BaseModel):
     data: Optional[dict] = None
     chunk: Optional[bytes] = None
     timestamp: float
+
+voice_generator = VoiceGenerator()
 
 class ConnectionManager:
     def __init__(self):
@@ -115,49 +125,44 @@ class ConnectionManager:
     def get_connections_count(self) -> int:
         return len(self.active_connections)
     
-    
 
 class AudioConnectionManager(ConnectionManager):
-    def __init__(self, chunk_processor = ChunkProcessor):
+    def __init__(self, 
+                 chunk_processor: ChunkProcessor, 
+                 llm_model,  # ⭐⭐ Только модель, не интервьюер ⭐⭐
+                 process_text_callback: Optional[Callable] = None):
         super().__init__()
+        self.voice_generator = voice_generator
         self.chunk_processor = chunk_processor
+        self.llm_model = llm_model  # Сохраняем только модель
+        self.process_text_callback = process_text_callback
+        
         self.is_session_active = False
         self.session_start_time = None
         self.chunks_processed = 0
-        self.active_user_id = None  # Добавляем отслеживание активного пользователя
-
-    async def connect(self, websocket: WebSocket, user_id: int) -> bool:
-        """Переопределяем connect для проверки активной сессии"""
-        async with self.lock:
-            # ⭐⭐ ПРОВЕРЯЕМ ЕСТЬ ЛИ АКТИВНАЯ СЕССИЯ ⭐⭐
-            if self.is_session_active:
-                self.logger.warning(f"Rejected connection for user {user_id}: session already active")
-                return False
-            
-            if user_id in self.active_connections:
-                self.logger.warning(f"User {user_id} already connected")
-                return False
-            
-            try:
-                self.active_connections[user_id] = websocket
-                self.connection_times[user_id] = datetime.now()
-                self.logger.info(f"User {user_id} connected successfully")
-                return True
-            except Exception as e:
-                self.logger.error(f"Connection failed for user {user_id}: {e}")
-                return False
+        self.active_user_id = None
+        
+        # Состояние для накопления текста
+        self.current_interview_text = ""
+        self.pending_user_response = ""
+        self.awaiting_user_response = False
 
     async def handle_audio_start(self, user_id: int, data: dict):
-        """Начало сессии с проверкой"""
+        """Начало сессии"""
         if self.is_session_active:
             await self.send_error(user_id, "Another session is already active")
             return
             
         self.is_session_active = True
-        self.active_user_id = user_id  # Запоминаем кто начал сессию
+        self.active_user_id = user_id
         self.session_start_time = datetime.now()
         self.chunks_processed = 0
-        self.chunk_processor.reset()  # Сбрасываем состояние процессора
+        self.chunk_processor.reset()
+        
+        # Сбрасываем состояние текста
+        self.current_interview_text = ""
+        self.pending_user_response = ""
+        self.awaiting_user_response = False
         
         await self.send_message(user_id, json.dumps({
             'type': MessageType.PROCESSING_START,
@@ -165,7 +170,7 @@ class AudioConnectionManager(ConnectionManager):
         }))
 
     async def handle_audio_chunk(self, user_id: int, data: dict):
-        """Обработка чанка с проверкой прав"""
+        """Обработка чанка с накоплением текста"""
         if not self.is_session_active:
             await self.send_error(user_id, "No active session")
             return
@@ -179,7 +184,6 @@ class AudioConnectionManager(ConnectionManager):
             audio_array = np.frombuffer(chunk_data, dtype=np.int16)
             audio_float = audio_array.astype(np.float32) / 32768.0
             
-            # ⭐⭐ ВЫЗОВ ТВОЕГО ChunkProcessor ⭐⭐
             result = await self.chunk_processor(audio_float)
             self.chunks_processed += 1
             
@@ -195,29 +199,77 @@ class AudioConnectionManager(ConnectionManager):
             pass
             
         elif result.status == 'answer':
-            # Отправляем распознанный текст
+            # ⭐⭐ НАКОПЛЕНИЕ ТЕКСТА ПОЛЬЗОВАТЕЛЯ ⭐⭐
+            self.pending_user_response += result.content + " "
+            self.current_interview_text += result.content + " "
+            
+            # Отправляем распознанный текст клиенту
             await self.send_message(user_id, json.dumps({
                 'type': MessageType.PROCESSING_RESULT,
                 'status': 'success',
                 'text': result.content,
+                'full_text': self.current_interview_text.strip(),
                 'timestamp': datetime.now().timestamp()
             }))
             
+            # ⭐⭐ ГЕНЕРАЦИЯ АУДИО ИЗ НАКОПЛЕННОГО ТЕКСТА ⭐⭐
+            if self.awaiting_user_response and self.pending_user_response.strip():
+                try:
+                    # Генерируем аудио из всего накопленного текста
+                    await self.send_llm_response_in_audio(
+                        user_id=user_id,
+                        response_text=self.pending_user_response.strip()
+                    )
+                except Exception as e:
+                    self.logger.error(f"Audio generation failed: {e}")
+                
+                self.pending_user_response = ""  # Сбрасываем накопленный текст
+            
         elif result.status == 'bad':
-            # Отправляем ошибку и завершаем сессию
             await self.send_error(user_id, f"Model error: {result.content}")
             await self.force_end_session()
+    async def send_llm_response_in_audio(self, user_id: int, response_text: str):
+        """Генерация аудио и отправка чанков через вебсокет"""
+        if not self.is_user_connected(user_id):
+            return False
+        
+        try:
+            # Генерируем аудио
+            audio_tensor = self.voice_generator(response_text)
+            
+            # Конвертируем в bytes
+            audio_numpy = audio_tensor.numpy().astype(np.int16)
+            audio_bytes = audio_numpy.tobytes()
+            
+            # ⭐⭐ ОТПРАВЛЯЕМ АУДИО ЧАНКИ ⭐⭐
+            await self.send_bytes(user_id, audio_bytes)
+            
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Failed to generate/send audio for user {user_id}: {e}")
+            return False
 
     async def handle_audio_end(self, user_id: int, data: dict):
-        """Завершение сессии с проверкой прав"""
+        """Завершение сессии"""
         if not self.is_session_active or user_id != self.active_user_id:
             return
             
+        # ⭐⭐ ОБРАБАТЫВАЕМ ПОСЛЕДНИЙ НАКОПЛЕННЫЙ ТЕКСТ ⭐⭐
+        if self.pending_user_response.strip() and self.process_text_callback and self.awaiting_user_response:
+            await self.process_text_callback(
+                user_id=user_id,
+                text=self.pending_user_response.strip(),
+                llm_model=self.llm_model,
+                connection_manager=self
+            )
+        
         await self.force_end_session()
         
         await self.send_message(user_id, json.dumps({
             'type': MessageType.PROCESSING_END,
-            'message': 'Audio session completed'
+            'message': 'Audio session completed',
+            'full_text': self.current_interview_text.strip()
         }))
 
     async def force_end_session(self):
@@ -230,38 +282,5 @@ class AudioConnectionManager(ConnectionManager):
             self.session_start_time = None
             self.chunks_processed = 0
             self.active_user_id = None
-    
-    async def send_error(self, user_id: int, error_message: str) -> bool:
-        """Отправка сообщения об ошибке"""
-        if not self.is_user_connected(user_id):
-            return False
-        
-        try:
-            error_data = json.dumps({
-                'type': MessageType.ERROR,
-                'error': error_message,
-                'timestamp': datetime.now().timestamp(),
-                'user_id': user_id
-            })
-            await self.active_connections[user_id].send_text(error_data)
-            self.logger.error(f"Error sent to user {user_id}: {error_message}")
-            return True
-        except Exception as e:
-            self.logger.error(f"Failed to send error to user {user_id}: {e}")
-            await self.disconnect(user_id)
-            return False
-
-    async def disconnect(self, user_id: int):
-        """При отключении завершаем сессию если это активный пользователь"""
-        async with self.lock:
-            if user_id == self.active_user_id:
-                await self.force_end_session()
-                
-            if user_id in self.active_connections:
-                try:
-                    await self.active_connections[user_id].close()
-                except:
-                    pass
-                del self.active_connections[user_id]
-                del self.connection_times[user_id]
-                self.logger.info(f"User {user_id} disconnected")
+            self.awaiting_user_response = False
+            self.pending_user_response = ""

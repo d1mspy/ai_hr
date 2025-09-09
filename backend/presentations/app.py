@@ -16,6 +16,7 @@ import asyncio
 from datetime import datetime
 import json
 import base64
+from utils.handling_llm import llm
 import httpx
 import numpy as np
 
@@ -107,7 +108,7 @@ class TestWebSocketRequest(BaseModel):
     
 
 manager = ConnectionManager()
-audio_manager = AudioConnectionManager(manager)
+audio_manager = AudioConnectionManager(manager, llm_model=llm)
 
 @app.websocket("/interview/{encrypted_user_id}")
 async def websocket_audio_endpoint(websocket: WebSocket, encrypted_user_id: str = Path(...)):
