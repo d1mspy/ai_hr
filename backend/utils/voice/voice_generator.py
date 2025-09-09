@@ -2,7 +2,7 @@ import torch
 from .voice_models import silero_tts_model
 
 class VoiceGenerator():
-    def __init__(self, tts_model: None = None):
+    def __init__(self, tts_model):
         self.tts_model = tts_model
         self.speaker = 'xenia'
         self.sample_rate = 24000

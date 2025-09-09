@@ -115,7 +115,7 @@ class TestWebSocketRequest(BaseModel):
     chunks_count: int = 5
     chunk_delay: float = 0.1
     
-audio_manager = AudioConnectionManager(chunk_processor=chunk_processor, llm_model=llm)
+audio_manager = AudioConnectionManager(dto=None, chunk_processor=chunk_processor, llm_model=llm)
 
 @app.websocket("/interview/{encrypted_user_id}")
 async def websocket_audio_endpoint(websocket: WebSocket, encrypted_user_id: str = Path(...)):
@@ -123,6 +123,10 @@ async def websocket_audio_endpoint(websocket: WebSocket, encrypted_user_id: str 
     if user_id is None:
         await websocket.close(code=4401)
         return
+
+    dto = await user_service.get_data_by_id(user_id)
+    audio_manager.data = dto
+    audio_manager.set()
 
     # СНАЧАЛА проверяем возможность коннекта, ПОТОМ accept
     if not await audio_manager.connect(websocket, user_id):

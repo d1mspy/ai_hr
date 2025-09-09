@@ -21,7 +21,7 @@ class InterviewResponse(BaseModel):
 
 class AIInterviewer:
     def __init__(self, llm, vacancy_name: str, hr_name: str, vacancy_general: str,
-                 resume_context: str, verification_plan: List[Dict]):
+                 resume_context: str, verification_plan: List[Dict[str, str]]):
         self.llm = llm
         self.vacancy_name = vacancy_name
         self.hr_name = hr_name

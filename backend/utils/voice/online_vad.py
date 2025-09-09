@@ -3,7 +3,7 @@ import torch
 class OnlineVAD():
     def __init__(self,
                  model,
-                 threshold: float = 0.3,
+                 threshold: float = 0.6,
                  sampling_rate: int = 16000,
                  min_silence_duration_ms: int = 300,
                  max_silence_duration_ms: int = 3000
@@ -48,6 +48,7 @@ class OnlineVAD():
         
         if (self.current_sample - self.last_speech_sample >= self.max_silence_samples):
             self.reset_states()
+            print('silence')
             return 'stop_answer'
             
         if (speech_prob < self.threshold - 0.05) and self.triggered:

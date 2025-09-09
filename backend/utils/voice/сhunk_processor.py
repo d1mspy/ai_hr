@@ -6,7 +6,7 @@ from .voice_models import silero_vad_model, parakeet_stt_model
 
 class ChunkProcessAns(BaseModel):
     status: str
-    content: str = "-"
+    content: str ="-" 
 
 class ChunkProcessor():
     def __init__(self, vad_model, stt_model: TextResultsAsrAdapter):
