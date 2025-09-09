@@ -1,6 +1,6 @@
 import torch
 from onnx_asr import load_model
-from path_config import SILERO_VAD_MODEL_PATH, PARAKEET_MODEL_DIR, SILERO_TTS_MODEL_PATH
+from .path_config import SILERO_VAD_MODEL_PATH, PARAKEET_MODEL_DIR, SILERO_TTS_MODEL_PATH
 
 silero_vad_model = torch.jit.load(SILERO_VAD_MODEL_PATH)
 silero_vad_model.eval()

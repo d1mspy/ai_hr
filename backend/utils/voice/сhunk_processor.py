@@ -1,6 +1,6 @@
 from pydantic import BaseModel
 from onnx_asr.adapters import TextResultsAsrAdapter
-from online_vad import OnlineVAD
+from .online_vad import OnlineVAD
 
 
 class ChunkProcessAns(BaseModel):
