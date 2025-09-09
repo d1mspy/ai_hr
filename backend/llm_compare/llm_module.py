@@ -31,8 +31,8 @@ class LLMAnalyzer:
         self.vacancy_text = None
 
         # Поля для хранения весов распределения hard/soft skills
-        self.hard_weight = None
-        self.soft_weight = None
+        self.hard_weight = 0.5
+        self.soft_weight = 0.5
 
         # Поля для хранения сокращенных копий данных
         self.compressed_data = None # Для Гриши
@@ -275,7 +275,7 @@ class LLMAnalyzer:
 
       s_w = int(skill_weight * 10)
       interview_topics = []
-      for i in range(s_w):
+      for i in range(min(s_w, len(topics))):
         interview_topics.append(topics[i])
       
       return interview_topics
@@ -309,8 +309,8 @@ class LLMAnalyzer:
         """
         Очищает результаты предыдущего анализа.
         """
-        self.hard_weight = None
-        self.soft_weight = None
+        self.hard_weight = 0.5
+        self.soft_weight = 0.5
         
         self.resume_text = None
         self.vacancy_text = None
