@@ -89,11 +89,9 @@ async def compare_docs(request: Request, cv: UploadFile = File(...), vacancy: Up
             resp.decision = analyzer.decision
             resp.score = analyzer.match_percentage
             resp.reasons = analyzer.candidate_feedback
-            print(analyzer.hard_interview_topics)
-            print(analyzer.soft_interview_topics)
             
             interview_dto = InterviewDTO(
-                summary=analyzer.candidate_feedback,
+                summary=analyzer.compressed_data,
                 meta=analyzer.vacancy_meta,
                 hard_topics=analyzer.hard_interview_topics,
                 soft_topics=analyzer.soft_interview_topics
@@ -101,7 +99,7 @@ async def compare_docs(request: Request, cv: UploadFile = File(...), vacancy: Up
             
             user_id = await user_service.put_user(interview_dto)
             encrypted_user_id = await user_service.get_encrypted_id(user_id)
-            resp.link = f"http://localhost/api/interview/{encrypted_user_id}"
+            resp.link = f"http://localhost/interview/{encrypted_user_id}"
             
             return resp
 
