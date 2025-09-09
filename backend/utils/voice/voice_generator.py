@@ -1,7 +1,7 @@
 import torch
 
 class VoiceGenerator():
-    def __init__(self, tts_model):
+    def __init__(self, tts_model: None = None):
         self.tts_model = tts_model
         self.speaker = 'xenia'
         self.sample_rate = 24000

@@ -3,9 +3,9 @@ from pydantic import BaseModel
 from langchain.prompts import ChatPromptTemplate
 from langchain.output_parsers import PydanticOutputParser
 
-from utils.state_classes import TopicType
-from utils.prompts import vacancy_info_completion_prompt, greeting_completion_prompt, soft_topic_completion_prompt, hard_topic_completion_prompt
-from utils.format_func import format_history
+from .state_classes import TopicType
+from .prompts import vacancy_info_completion_prompt, greeting_completion_prompt, soft_topic_completion_prompt, hard_topic_completion_prompt
+from .format_func import format_history
 
 
 # Функция для определения необходимости завершения темы

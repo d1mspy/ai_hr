@@ -7,7 +7,7 @@ from llm_compare.llm_module import LLMAnalyzer
 from services.user import UserService
 from settings.settings import settings
 from repositories.db.repository import Repository
-from schemas.docs import CompareResponse, ParsingAndLLMResponse
+from schemas.docs import ParsingAndLLMResponse, InterviewDTO
 from utils.websocket import ConnectionManager, AudioConnectionManager, MessageType
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -78,8 +78,7 @@ async def compare_docs(request: Request, cv: UploadFile = File(...), vacancy: Up
     dto.text = text
 
     resp = ParsingAndLLMResponse(details=dto.decision.get("details", None))
-    
-    # return dto
+
     if dto.decision["decision"] != "reject":
         analyzer = LLMAnalyzer()
         analyzer.set_data(text.cv_text, text.vac_text)
@@ -89,7 +88,21 @@ async def compare_docs(request: Request, cv: UploadFile = File(...), vacancy: Up
         else:
             resp.decision = analyzer.decision
             resp.score = analyzer.match_percentage
-            resp.reasons = analyzer.reasoning_report
+            resp.reasons = analyzer.candidate_feedback
+            print(analyzer.hard_interview_topics)
+            print(analyzer.soft_interview_topics)
+            
+            interview_dto = InterviewDTO(
+                summary=analyzer.candidate_feedback,
+                meta=analyzer.vacancy_meta,
+                hard_topics=analyzer.hard_interview_topics,
+                soft_topics=analyzer.soft_interview_topics
+            )
+            
+            user_id = await user_service.put_user(interview_dto)
+            encrypted_user_id = await user_service.get_encrypted_id(user_id)
+            resp.link = f"http://localhost/api/interview/{encrypted_user_id}"
+            
             return resp
 
     resp.decision = dto.decision["decision"]

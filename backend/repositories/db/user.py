@@ -1,7 +1,8 @@
 from persistent.db.tables import User
 from infrastructure.db.connect import pg_connection
 from sqlalchemy import insert, select, update, delete, exists
-import json
+from typing import List, Dict, Optional
+from schemas.docs import InterviewDTO
 
 
 class UserRepository:
@@ -9,8 +10,18 @@ class UserRepository:
         self._sessionmaker = pg_connection()
         
     # тестовая запись
-    async def put_user(self, resume:json) -> None:
-        stmp = insert(User).values({"resume": resume}).returning(User.id)
+    async def put_user(self, 
+                       summary: str, 
+                       meta: str, 
+                       hard_topics: List[Dict[str, str]], 
+                       soft_topics: List[Dict[str, str]],
+                    ) -> int | None:
+        
+        stmp = insert(User).values({"summary": summary, 
+                                    "meta": meta, 
+                                    "hard_topics": hard_topics, 
+                                    "soft_topics": soft_topics,
+                                    }).returning(User.id)
     
         async with self._sessionmaker() as session:
             result = await session.execute(stmp)
@@ -22,21 +33,31 @@ class UserRepository:
         return user_id
     
     
-    async def get_json_by_id(self, user_id) -> list | None:
-        stmp = select(User.resume).where(User.id==user_id)
-        
+    async def get_data_by_id(self, user_id: int) -> Optional[InterviewDTO]:
+        stmt = (
+            select(
+                User.summary.label("summary"),
+                User.meta.label("meta"),
+                User.hard_topics.label("hard_topics"),
+                User.soft_topics.label("soft_topics"),
+            ).where(User.id == user_id).limit(1)
+        )
+
         async with self._sessionmaker() as session:
-            resp = await session.execute(stmp)
-            await session.commit()
-        
-        row = resp.fetchall()
-        if len(row) == 0:
+            res = await session.execute(stmt)
+            row = res.mappings().first()
+
+        if row is None:
             return None
 
-        result = row[0]
-        return result
+        return InterviewDTO(
+            summary=row["summary"] or "",
+            meta=row["meta"] or "",
+            hard_topics=row["hard_topics"] or [],
+            soft_topics=row["soft_topics"] or [],
+        )
     
-    async def check_user(self, user_id):
+    async def check_user(self, user_id) -> bool:
         stmp = select(exists().where(User.id == user_id))
         
         async with self._sessionmaker() as session:

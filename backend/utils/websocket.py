@@ -7,11 +7,10 @@ from enum import Enum
 from typing import Dict, Optional
 import logging
 from .voice.сhunk_processor import ChunkProcessor, ChunkProcessAns
-from handling_llm import ResponseStatus, InterviewResponse
 from typing import Dict, List, Optional, Callable
 import asyncio
 from utils.voice.voice_generator import VoiceGenerator
-import json
+import json 
 import base64
 import numpy as np
 from datetime import datetime
