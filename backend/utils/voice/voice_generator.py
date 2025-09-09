@@ -1,5 +1,6 @@
 import torch
-from .voice_models import silero_tts_model
+from voice_models import silero_tts_model
+
 class VoiceGenerator():
     def __init__(self, tts_model: None = None):
         self.tts_model = tts_model
