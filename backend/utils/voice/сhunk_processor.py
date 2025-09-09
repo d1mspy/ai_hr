@@ -19,11 +19,11 @@ class ChunkProcessor():
     def reset(self):
         self.online_vad.reset_states()
 
-    async def __call__(self, audio_chunk) -> ChunkProcessAns:
+    def __call__(self, audio_chunk) -> ChunkProcessAns:
         try:
             phrase_audio = self.online_vad(audio_chunk)
-            if phrase_audio is None:
-                return ChunkProcessAns(status='ok')
+            if type(phrase_audio) is str:
+                return ChunkProcessAns(status=phrase_audio)
             else:
                 phrase_text = self.stt_model.recognize(phrase_audio)
                 return ChunkProcessAns(status='answer', content=phrase_text)
