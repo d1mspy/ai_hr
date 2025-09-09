@@ -20,7 +20,7 @@ class Uvicorn(BaseModel):
     
 class Analyzer(BaseModel):
     api_key: str = c.ANALYZER_API_KEY
-    model_name: str = c.ANALYZER_MODEL
+    model: str = c.ANALYZER_MODEL
     temperature: float = 0.3
     url: str = c.ANALYZER_URL
     timeout_sec: float = 60.0

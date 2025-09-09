@@ -3,10 +3,10 @@ from typing import List, Dict, Optional
 from pydantic import BaseModel, Field
 
 
-from utils.prompts import *
-from utils.state_classes import HardTopicSummary, SoftTopicSummary, QuestionType, TopicType, InterviewState
-from utils.format_func import format_dict_for_prompt, format_history
-from utils.some_llm_func import should_end_topic_llm_based, generate_structured_output
+from .utils.prompts import *
+from .utils.state_classes import HardTopicSummary, SoftTopicSummary, QuestionType, TopicType, InterviewState
+from .utils.format_func import format_dict_for_prompt, format_history
+from .utils.some_llm_func import should_end_topic_llm_based, generate_structured_output
 
 
 class ResponseStatus(str, Enum):

@@ -1,6 +1,6 @@
 from pydantic import BaseModel
 from onnx_asr.adapters import TextResultsAsrAdapter
-from .online_vad import OnlineVAD
+from online_vad import OnlineVAD
 
 
 class ChunkProcessAns(BaseModel):
@@ -28,3 +28,5 @@ class ChunkProcessor():
                 return ChunkProcessAns(status='answer', content=phrase_text)
         except Exception as e:
             return ChunkProcessAns(status='bad', content=str(e))
+
+chunk_processor = ChunkProcessor()
