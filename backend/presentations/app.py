@@ -1,12 +1,14 @@
-from fastapi import UploadFile, File, Path, FastAPI, HTTPException, status, WebSocket, WebSocketException, WebSocketDisconnect
+from fastapi import UploadFile, File, Path, FastAPI, HTTPException, status, WebSocket, Request, WebSocketDisconnect
+from contextlib import asynccontextmanager
 from utils.websocket import ConnectionManager
 from services.parsing_service import ParsingService
 from services.match_service import MatchService
-from services.llm_compare_service import LLMCompareService
+from llm_compare.llm_module import LLMAnalyzer
 from services.user import UserService
+from settings.settings import settings
 from repositories.db.repository import Repository
-from schemas.docs import CompareResponse
-from utils.websocket import ConnectionManager, AudioConnectionManager, MessageType, WSMessage
+from schemas.docs import CompareResponse, ParsingAndLLMResponse
+from utils.websocket import ConnectionManager, AudioConnectionManager, MessageType
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from repositories.db.repository import Repository
@@ -14,13 +16,24 @@ import asyncio
 from datetime import datetime
 import json
 import base64
+import httpx
 import numpy as np
+
+# глобальный http-клиент
+async_client: httpx.AsyncClient | None = None
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    app.state.http_client = httpx.AsyncClient(timeout=settings.analyzer.timeout_sec)
+    yield
+    await app.state.http_client.aclose()
 
 app = FastAPI(title="ВТБ хак",
               docs_url='/docs',
               redoc_url='/redoc',
               openapi_url='/openapi.json',
-              root_path="/api")
+              root_path="/api",
+              lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -30,12 +43,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# экземпляры класса сервиса и репозитория
+# экземпляры классов сервисов и репозитория
 repository = Repository()
-user_service = UserService()
 parsing_service = ParsingService(repository)
 matching_service = MatchService(parsing_service)
-llm_compare_service = LLMCompareService()
+user_service = UserService()
 
 @app.get("/")
 async def test_endpoint() -> str:
@@ -45,8 +57,8 @@ async def test_endpoint() -> str:
     return "ok"
 
 
-@app.post("/compare", response_model=CompareResponse)
-async def compare_docs(cv: UploadFile = File(...), vacancy: UploadFile = File(...)):
+@app.post("/compare", response_model=ParsingAndLLMResponse)
+async def compare_docs(request: Request, cv: UploadFile = File(...), vacancy: UploadFile = File(...)):
     """
     сравнение резюме и вакансии
     """
@@ -64,12 +76,25 @@ async def compare_docs(cv: UploadFile = File(...), vacancy: UploadFile = File(..
     dto = await matching_service.compare_docs(cv_bytes, vac_bytes)
     dto.text = text
 
+    resp = ParsingAndLLMResponse(details=dto.decision.get("details", None))
+    
     # return dto
     if dto.decision["decision"] != "reject":
-        llm_dto = await llm_compare_service.compare(dto.text)
-        return llm_dto
+        analyzer = LLMAnalyzer()
+        analyzer.set_data(text.cv_text, text.vac_text)
+        ok = await analyzer.analyze(request.app.state.http_client)
+        if not ok:
+            raise HTTPException(status_code=502, detail="LLM не смогло вернуть валидный JSON")
+        else:
+            resp.decision = analyzer.decision
+            resp.score = analyzer.match_percentage
+            resp.reasons = analyzer.reasoning_report
+            return resp
 
-    return dto
+    resp.decision = dto.decision["decision"]
+    resp.score = dto.decision["score"]*100
+    resp.reasons = dto.decision["reasons"][0] if dto.decision["reasons"] else None
+    return resp
     # if answer:
     #     user_id = await user_service.put_user(json = {"rezume+vaka":answer["rezume+vaka"]})
     #     encrypted_user_id = user_service.get_encrypted_id(id=user_id)

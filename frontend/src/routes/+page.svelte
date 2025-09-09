@@ -2,11 +2,10 @@
   import { onMount } from 'svelte';
 
   let vacancyFile: File | null = null;
-  let resumeFiles: File[] = []; // несколько резюме
+  let resumeFiles: File[] = [];
   let isLoading = false;
   let progress = 0;
 
-  // DOCX-валидатор
   const isValidFileType = (file: File): boolean =>
     file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
     file.name.toLowerCase().endsWith('.docx');
@@ -30,7 +29,6 @@
     const target = event.target as HTMLInputElement;
     const files = Array.from(target.files ?? []);
 
-      // Проверка количества файлов
   if (files.length > 10) {
     alert('Можно загрузить не более 10 файлов');
     target.value = '';
@@ -48,8 +46,8 @@
   };
 
   type BackendDecision = {
-    decision: 'reject' | string; // любые иные значения трактуем как "собеседование"
-    score: number;               // 0..1
+    decision: 'reject'
+    score: number;
     reasons?: string[];
     details?: Record<string, unknown>;
   };
@@ -80,12 +78,10 @@
     const results: UIResult[] = [];
     const total = resumeFiles.length;
 
-    // Последовательно (проще контролировать прогресс). Можно легко распараллелить при желании.
     for (let i = 0; i < total; i++) {
       const cvFile = resumeFiles[i];
 
       const form = new FormData();
-      // ВАЖНО: сначала cv, потом vacancy
       form.append('cv', cvFile, cvFile.name);
       form.append('vacancy', vacancyFile, vacancyFile.name);
 
@@ -129,15 +125,12 @@
           score: 0,
         });
       } finally {
-        // Простой прогресс по числу обработанных резюме
         progress = Math.min(100, Math.round(((i + 1) / total) * 100));
       }
     }
 
-    // Сохраняем результаты для страницы /results
     sessionStorage.setItem('aihr_results', JSON.stringify(results));
 
-    // Небольшая пауза для UX, затем переход
     setTimeout(() => navigateToResults(), 300);
   };
 </script>

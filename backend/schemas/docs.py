@@ -20,3 +20,9 @@ class CompareResponse(BaseModel):
     decision: Dict[str, Any]
     vacancy: Dict[str, Any]
     text: ParsedText | None = None
+    
+class ParsingAndLLMResponse(BaseModel):
+    decision: str | None = None
+    score: int | None = None
+    reasons: str | None = None
+    details: Dict[str, Any] | None = None

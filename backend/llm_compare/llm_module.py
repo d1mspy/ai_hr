@@ -1,5 +1,5 @@
 import time
-import requests
+import httpx
 import json
 from settings.settings import settings
 
@@ -16,8 +16,8 @@ if analyzer.analyze(): // Отображение результата в фор�
 class LLMAnalyzer:
     
     # поля модели
-    api_key: str = settings.analyzer.api_key, 
-    model_name: str = settings.analyzer.model_name, 
+    api_key: str = settings.analyzer.api_key
+    model_name: str = settings.analyzer.model
     temperature: float = settings.analyzer.temperature
 
     def __init__(self):
@@ -114,9 +114,9 @@ class LLMAnalyzer:
   "decision": "True", // Или "False"
   "match_percentage": 75, // Рассчитанный процент соответствия (целое число)
   "reasoning_report": "Детальный развернутый текст на 5-10 предложений. Аргументируй решение. Укажи: 1) Главные strengths кандидата, соотнесенные с требованиями. 2) Ключевые пробелы (gaps), которые повлияли на решение. 3) Как были применены веса критериев при оценке. 4) Общую логику вывода процента.",
-  "candidate_feedback": "Краткий видбек для кандидата (3-4 предложения). Вежливый и конструктивный. Если доступ предоставлен — сообщи об этом и укажи сильные стороны. Если нет — вежливо откажи, укажи ДВЕ - ТРИ главных причины и дай рекомендацию для улучшения (например, 'Рекомендуем обратить внимание на изучение Kubernetes')."
-  "hard_interview_topics": ["Название темы"]. // ЗАПОЛНЯТЬ ТОЛЬКО ЕСЛИ ДОСТУП ПРЕДОСТАВЛЕН. Иначе - пустой массив [].
-  "soft_interview_topics":["Назвернутое название темы"]. // ЗАПОЛНЯТЬ ТОЛЬКО ЕСЛИ ДОСТУП ПРЕДОСТАВЛЕН. Иначе - пустой массив [].
+  "candidate_feedback": "Краткий видбек для кандидата (3-4 предложения). Вежливый и конструктивный. Если доступ предоставлен — сообщи об этом и укажи сильные стороны. Если нет — вежливо откажи, укажи ДВЕ - ТРИ главных причины и дай рекомендацию для улучшения (например, 'Рекомендуем обратить внимание на изучение Kubernetes').",
+  "hard_interview_topics": ["Название темы"], // ЗАПОЛНЯТЬ ТОЛЬКО ЕСЛИ ДОСТУП ПРЕДОСТАВЛЕН. Иначе - пустой массив [].
+  "soft_interview_topics":["Назвернутое название темы"], // ЗАПОЛНЯТЬ ТОЛЬКО ЕСЛИ ДОСТУП ПРЕДОСТАВЛЕН. Иначе - пустой массив [].
   "vacancy_meta":"Ключ1: Значение1\n Ключ2: Значение2",
   "compressed_data": "РЕЗЮМЕ\n- Ключевой навык 1 с контекстом\n- Ключевой навык 2 с контекстом\n- Основной опыт работы\ВАКАНСИЯ\n- Основное требование 1\n- Основное требование 2\n- Ключевая обязанность"".
 """
@@ -131,7 +131,7 @@ class LLMAnalyzer:
         self.resume_text = resume_text
         self.vacancy_text = vacancy_text
     
-    def analyze(self) -> bool:
+    async def analyze(self, client: httpx.AsyncClient) -> bool:
         """
         Запуск анализа соответствия резюме и вакансии.
 
@@ -148,7 +148,7 @@ class LLMAnalyzer:
         )
 
         # Отправляем запрос к LLM
-        result = self._send_to_llm(user_prompt)
+        result = await self._send_to_llm(user_prompt, client=client)
         
         if not result['success']:
             return False
@@ -156,67 +156,78 @@ class LLMAnalyzer:
         # Парсим результат
         return self._parse_result(result['content'])
 
-    def _send_to_llm(self, user_prompt: str, max_tokens: int = 100000) -> dict:
+    async def _send_to_llm(
+        self,
+        user_prompt: str,
+        max_tokens: int = 100000,
+        client: httpx.AsyncClient | None = None,
+    ) -> dict:
         """
-        Отправляет запрос к LLM через OpenRouter API.
-
-        Args:
-            user_prompt (str): Пользовательский промт с данными
-            max_tokens (int): Максимальное количество токенов в ответе
-
-        Returns:
-            dict: Результат запроса
+        Отправляет запрос к LLM через OpenRouter API (асинхронно, httpx).
+        Логика полностью сохранена.
         """
         url = settings.analyzer.url
         headers = {
             "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
         }
-
         data = {
             "model": self.model_name,
             "messages": [
                 {"role": "system", "content": self.SYSTEM_PROMPT},
-                {"role": "user", "content": user_prompt}
+                {"role": "user", "content": user_prompt},
             ],
             "temperature": self.temperature,
-            "max_tokens": max_tokens
+            "max_tokens": max_tokens,
         }
 
         start_time = time.time()
+        owns_client = False
+
+        if client is None:
+            client = httpx.AsyncClient()
+            owns_client = True
 
         try:
-            response = requests.post(url, headers=headers, json=data)
+            response = await client.post(url, headers=headers, json=data)
             response.raise_for_status()
 
             result = response.json()
             end_time = time.time()
 
             # Извлекаем информацию
-            content = result['choices'][0]['message']['content']
-            usage = result.get('usage', {})
+            content = result["choices"][0]["message"]["content"]
+            usage = result.get("usage", {})
 
-            # Сохраняем метрики
+            # сохраняем метрики
             self.response_time_seconds = round(end_time - start_time, 2)
-            self.prompt_tokens = usage.get('prompt_tokens', 0)
-            self.completion_tokens = usage.get('completion_tokens', 0)
-            self.total_tokens = usage.get('total_tokens', 0)
-            self.speed_tokens_per_second = round(
-                usage.get('completion_tokens', 0) / (end_time - start_time), 2
-            ) if (end_time - start_time) > 0 else 0
+            self.prompt_tokens = usage.get("prompt_tokens", 0)
+            self.completion_tokens = usage.get("completion_tokens", 0)
+            self.total_tokens = usage.get("total_tokens", 0)
+            self.speed_tokens_per_second = (
+                round(usage.get("completion_tokens", 0) / (end_time - start_time), 2)
+                if (end_time - start_time) > 0
+                else 0
+            )
 
             return {
-                'success': True,
-                'content': content,
-                'model_used': result.get('model', self.model_name)
+                "success": True,
+                "content": content,
+                "model_used": result.get("model", self.model_name),
             }
-
+            
+        except httpx.TimeoutException as e:
+            self.response_time_seconds = round(time.time() - start_time, 2)
+            return {"success": False, "error": f"Timeout: {e}"}
+        except httpx.HTTPError as e:
+            self.response_time_seconds = round(time.time() - start_time, 2)
+            return {"success": False, "error": str(e)}
         except Exception as e:
             self.response_time_seconds = round(time.time() - start_time, 2)
-            return {
-                'success': False,
-                'error': str(e)
-            }
+            return {"success": False, "error": str(e)}
+        finally:
+            if owns_client:
+                await client.aclose()
 
     def _parse_result(self, content: str) -> bool:
         """
