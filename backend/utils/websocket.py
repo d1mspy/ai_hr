@@ -193,58 +193,33 @@ class AudioConnectionManager(ConnectionManager):
     async def handle_model_result(self, user_id: int, result: ChunkProcessAns):
         """Обработка результата от ChunkProcessor"""
         if result.status == 'ok':
-            # Модель приняла чанк, продолжаем
+            # Модель приняла чанк, продолжаем отправлять следующие
             pass
             
         elif result.status == 'answer':
-            # ⭐⭐ НАКОПЛЕНИЕ ТЕКСТА ПОЛЬЗОВАТЕЛЯ ⭐⭐
+            # ⭐⭐ КОНКАТЕНАЦИЯ ПРЕДЛОЖЕНИЙ ⭐⭐
             self.pending_user_response += result.content + " "
             self.current_interview_text += result.content + " "
-            
-            # Отправляем распознанный текст клиенту
-            await self.send_message(user_id, json.dumps({
-                'type': MessageType.PROCESSING_RESULT,
-                'status': 'partial',
-                'text': result.content,
-                'full_text': self.current_interview_text.strip(),
-                'timestamp': datetime.now().timestamp()
-            }))
+            # Просто накапливаем текст, ничего не отправляем
             
         elif result.status == 'stop_answer':
             # ⭐⭐ ФИНАЛЬНЫЙ ТЕКСТ - ОТПРАВЛЯЕМ В LLM ⭐⭐
             self.pending_user_response += result.content + " "
             self.current_interview_text += result.content + " "
             
-            # Отправляем финальный распознанный текст клиенту
-            await self.send_message(user_id, json.dumps({
-                'type': MessageType.PROCESSING_RESULT,
-                'status': 'final',
-                'text': result.content,
-                'full_text': self.current_interview_text.strip(),
-                'timestamp': datetime.now().timestamp()
-            }))
-            
-            # ⭐⭐ ВЫЗОВ КОЛБЭКА ДЛЯ ОБРАБОТКИ ТЕКСТА (LLM) ⭐⭐
+            # ⭐⭐ ПЕРЕДАЕМ ВЕСЬ НАКОПЛЕННЫЙ ТЕКСТ В LLM ⭐⭐
             if self.process_text_callback and self.awaiting_user_response:
                 llm_response = await self.process_text_callback(
                     user_id=user_id,
-                    text=self.pending_user_response.strip(),
+                    text=self.pending_user_response.strip(),  # Весь накопленный текст
                     llm_model=self.llm_model,
                     connection_manager=self
                 )
                 
-                # Отправляем текстовый ответ LLM
-                await self.send_message(user_id, json.dumps({
-                    'type': MessageType.LLM_RESPONSE,
-                    'text': llm_response.text,
-                    'current_topic': llm_response.current_topic,
-                    'timestamp': datetime.now().timestamp()
-                }))
-                
-                # Генерируем аудио из ответа LLM и отправляем
+                # Генерируем аудио из ответа LLM
                 await self.send_llm_response_in_audio(user_id, llm_response.text)
                 
-                self.pending_user_response = ""  # Сбрасываем накопленный текст
+                self.pending_user_response = ""  # Сбрасываем для следующего ответа
             
         elif result.status == 'bad':
             await self.send_error(user_id, f"Model error: {result.content}")
