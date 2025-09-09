@@ -1,8 +1,7 @@
 import time
 import requests
 import json
-
-API_KEY = "" # Надо спрятать
+from settings.settings import settings
 
 """
 Пример использования. 
@@ -15,21 +14,16 @@ if analyzer.analyze(): // Отображение результата в фор�
 """
 
 class LLMAnalyzer:
+    
+    # поля модели
+    api_key: str = settings.analyzer.api_key, 
+    model_name: str = settings.analyzer.model_name, 
+    temperature: float = settings.analyzer.temperature
 
-    def __init__(self, api_key: str, model_name: str = "openrouter/sonoma-dusk-alpha", temperature: float = 0.3):
+    def __init__(self):
         """
         Инициализация анализатора.
-
-        Args:
-            api_key (str): API-ключ OpenRouter
-            model_name (str): Название модели LLM
-            temperature (float): Креативность ответа (0.0-1.0)
         """
-
-        # Поля модели
-        self.api_key = api_key
-        self.model_name = model_name
-        self.temperature = temperature
         
         # Поля для хранения данных
         self.resume_text = None
@@ -173,7 +167,7 @@ class LLMAnalyzer:
         Returns:
             dict: Результат запроса
         """
-        url = "https://openrouter.ai/api/v1/chat/completions"
+        url = settings.analyzer.url
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json"

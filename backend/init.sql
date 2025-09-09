@@ -1,4 +1,4 @@
 CREATE TABLE "user"(
     id SMALLSERIAL PRIMARY KEY,
-    cv JSONB
+    summary JSONB
 );
