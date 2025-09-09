@@ -1,6 +1,5 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  // взять параметр маршрута /interview/[id]
   import { page } from '$app/stores';
   import { browser } from '$app/environment';
 
@@ -10,21 +9,26 @@
   let timerInterval: number | null = null;
   let startTime: number = 0;
 
-  // здесь будет /interview/<id> из URL
   let encryptedUserId: string = '';
   $: encryptedUserId = ($page.params.id as string) ?? '';
-  // для удобства — WebSocket
+  
   let ws: WebSocket | null = null;
+  let audioContext: AudioContext | null = null;
+  let mediaStream: MediaStream | null = null;
+  let processor: ScriptProcessorNode | null = null;
+  let source: MediaStreamAudioSourceNode | null = null;
 
   onMount(() => {
-    console.log('Encrypted ID from route:', encryptedUserId); // можно удалить
+    console.log('Encrypted ID from route:', encryptedUserId);
     startTimer();
   });
 
   onDestroy(() => {
     if (timerInterval) clearInterval(timerInterval);
-    // аккуратно закрыть сокет при уходе со страницы
-    if (ws && ws.readyState === WebSocket.OPEN) ws.close(1000, 'page unload');
+    stopRecording();
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.close(1000, 'page unload');
+    }
   });
 
   const startTimer = () => {
@@ -37,47 +41,235 @@
     }, 1000);
   };
 
-  // ленивое подключение по первому клику
-  function ensureWS() {
-    if (!browser) return;
+  const ensureWS = async (): Promise<boolean> => {
+    if (!browser) return false;
     if (!encryptedUserId) {
       console.error('No encryptedUserId in URL');
-      return;
+      return false;
     }
     if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
-      return; // уже подключаемся/подключены
+      return true;
     }
-    const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
-    const host = location.host;
-    ws = new WebSocket(`${scheme}://${host}/api/interview/${encryptedUserId}`);
 
-    ws.onopen = () => console.log('WS connected:', encryptedUserId);
-    ws.onmessage = (e) => console.log('WS message:', e.data);
-    ws.onerror = (e) => console.error('WS error:', e);
-    ws.onclose = (e) => console.log('WS closed:', e.code, e.reason);
-  }
+    return new Promise((resolve) => {
+      const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
+      const host = location.host;
+      ws = new WebSocket(`${scheme}://${host}/api/interview/${encryptedUserId}`);
 
-  const toggleMicrophone = () => {
-    isRecording = !isRecording;
-    // должно быть включение микро
-    // при первом клике — установить WS-соединение с backend
-    ensureWS();
+      ws.onopen = () => {
+        console.log('WS connected:', encryptedUserId);
+        resolve(true);
+      };
+      
+      ws.onmessage = (e) => {
+        if (e.data instanceof Blob) {
+          handleAudioResponse(e.data);
+        } else {
+          try {
+            const message = JSON.parse(e.data);
+            console.log('WS message:', message);
+          } catch (error) {
+            console.log('Raw text message:', e.data);
+          }
+        }
+      };
+      
+      ws.onerror = (e) => {
+        console.error('WS error:', e);
+        resolve(false);
+      };
+      
+      ws.onclose = (e) => {
+        console.log('WS closed:', e.code, e.reason);
+        resolve(false);
+      };
+
+      // Таймаут подключения
+      setTimeout(() => {
+        if (ws?.readyState === WebSocket.CONNECTING) {
+          console.error('WebSocket connection timeout');
+          ws.close();
+          resolve(false);
+        }
+      }, 5000);
+    });
+  };
+
+  const convertFloat32ToInt16 = (float32Array: Float32Array): Int16Array => {
+    const int16Array = new Int16Array(float32Array.length);
+    for (let i = 0; i < float32Array.length; i++) {
+      const sample = Math.max(-1, Math.min(1, float32Array[i]));
+      int16Array[i] = sample < 0 ? sample * 0x8000 : sample * 0x7FFF;
+    }
+    return int16Array;
+  };
+
+  const startRecording = async (): Promise<boolean> => {
+    try {
+      // Получаем доступ к микрофону с нужными параметрами
+      mediaStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          sampleRate: 16000,
+          channelCount: 1,
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        },
+        video: false
+      });
+
+      // Создаем AudioContext с нужной частотой дискретизации
+      audioContext = new AudioContext({ 
+        sampleRate: 16000,
+        latencyHint: 'interactive'
+      });
+
+      // Создаем источник из медиапотока
+      source = audioContext.createMediaStreamSource(mediaStream);
+      
+      // Создаем процессор для обработки аудио (512 samples per chunk)
+      processor = audioContext.createScriptProcessor(512, 1, 1);
+      
+      // Настраиваем обработчик данных
+      processor.onaudioprocess = (event) => {
+        if (!isRecording || !ws || ws.readyState !== WebSocket.OPEN) return;
+        
+        try {
+          // Получаем данные из входного буфера
+          const inputData = event.inputBuffer.getChannelData(0);
+          
+          // Конвертируем Float32 в Int16
+          const int16Data = convertFloat32ToInt16(inputData);
+          
+          // Отправляем чанк через WebSocket как бинарные данные
+          ws.send(int16Data.buffer);
+        } catch (error) {
+          console.error('Error processing audio chunk:', error);
+        }
+      };
+      
+      // Соединяем узлы
+      source.connect(processor);
+      processor.connect(audioContext.destination);
+      
+      isRecording = true;
+      console.log('Recording started with 16kHz mono, 512 sample chunks');
+      return true;
+      
+    } catch (error) {
+      console.error('Error starting recording:', error);
+      stopRecording();
+      return false;
+    }
+  };
+
+  const stopRecording = () => {
+    // Отключаем и очищаем аудио узлы
+    if (processor) {
+      processor.disconnect();
+      processor = null;
+    }
+    if (source) {
+      source.disconnect();
+      source = null;
+    }
+    
+    // Останавливаем медиапоток
+    if (mediaStream) {
+      mediaStream.getTracks().forEach(track => {
+        track.stop();
+        track.enabled = false;
+      });
+      mediaStream = null;
+    }
+    
+    // Закрываем аудиоконтекст
+    if (audioContext) {
+      if (audioContext.state !== 'closed') {
+        audioContext.close();
+      }
+      audioContext = null;
+    }
+    
+    isRecording = false;
+    console.log('Recording stopped');
+  };
+
+  const handleAudioResponse = async (audioBlob: Blob) => {
+    try {
+      const audioUrl = URL.createObjectURL(audioBlob);
+      const audio = new Audio(audioUrl);
+      audio.volume = isMuted ? 0 : 1;
+      
+      audio.onended = () => {
+        URL.revokeObjectURL(audioUrl);
+      };
+      
+      await audio.play();
+    } catch (error) {
+      console.error('Error playing audio response:', error);
+    }
+  };
+
+  const toggleMicrophone = async () => {
+    if (isRecording) {
+      // Останавливаем запись
+      stopRecording();
+      
+      // Закрываем WebSocket соединение
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.close(1000, 'Recording stopped by user');
+      }
+      ws = null;
+    } else {
+      try {
+        // Сначала устанавливаем WebSocket соединение
+        const connected = await ensureWS();
+        if (!connected) {
+          console.error('Failed to establish WebSocket connection');
+          return;
+        }
+        
+        // Затем начинаем запись
+        const recordingStarted = await startRecording();
+        if (!recordingStarted) {
+          console.error('Failed to start recording');
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.close(1000, 'Recording failed');
+          }
+          ws = null;
+        }
+      } catch (error) {
+        console.error('Error starting recording session:', error);
+        stopRecording();
+        if (ws) {
+          ws.close(1000, 'Recording session error');
+          ws = null;
+        }
+      }
+    }
   };
 
   const toggleMute = () => {
     isMuted = !isMuted;
-    // должно быть вкл/выкл звука
+    // Здесь можно добавить логику для реального отключения звука
+    console.log(isMuted ? 'Audio muted' : 'Audio unmuted');
   };
 
-  const endInterview = () => {
+  const endInterview = async () => {
     if (confirm("Завершить собеседование?")) {
-      // должно быть завершение звонка
-      if (ws && ws.readyState === WebSocket.OPEN) ws.close(1000, 'interview ended'); // NEW: закрыть WS
+      // Останавливаем запись и закрываем соединения
+      stopRecording();
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.close(1000, 'interview ended by user');
+      }
+      ws = null;
+      
+      // Перенаправляем на страницу результатов
       window.location.href = "/results";
     }
   };
 </script>
-
 
 <svelte:head>
   <title>Собеседование - AI-HR Сервис</title>
@@ -106,7 +298,7 @@
           <div class="participant-info">
             <h3>Кандидат</h3>
           </div>
-          <div class="audio-indicator" class:active={true}>
+          <div class="audio-indicator" class:active={isRecording}>
             <div class="audio-waves">
               {#each Array(5) as _, i}
                 <div class="wave" style={`--i: ${i};`}></div>
