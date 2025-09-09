@@ -7,9 +7,10 @@ from enum import Enum
 from typing import Dict, Optional
 import logging
 from .voice.сhunk_processor import ChunkProcessor, ChunkProcessAns
-from handling_llm import ResponseStatus
+from handling_llm import ResponseStatus, InterviewResponse
 from typing import Dict, List, Optional, Callable
 import asyncio
+from utils.voice.voice_generator import VoiceGenerator
 import json
 import base64
 import numpy as np
@@ -33,6 +34,8 @@ class WSMessage(BaseModel):
     data: Optional[dict] = None
     chunk: Optional[bytes] = None
     timestamp: float
+
+voice_generator = VoiceGenerator()
 
 class ConnectionManager:
     def __init__(self):
@@ -129,6 +132,7 @@ class AudioConnectionManager(ConnectionManager):
                  llm_model,  # ⭐⭐ Только модель, не интервьюер ⭐⭐
                  process_text_callback: Optional[Callable] = None):
         super().__init__()
+        self.voice_generator = voice_generator
         self.chunk_processor = chunk_processor
         self.llm_model = llm_model  # Сохраняем только модель
         self.process_text_callback = process_text_callback
@@ -208,42 +212,42 @@ class AudioConnectionManager(ConnectionManager):
                 'timestamp': datetime.now().timestamp()
             }))
             
-            # ⭐⭐ ВЫЗОВ КОЛБЭКА ДЛЯ ОБРАБОТКИ ТЕКСТА ⭐⭐
-            if self.process_text_callback and self.awaiting_user_response:
-                await self.process_text_callback(
-                    user_id=user_id,
-                    text=self.pending_user_response.strip(),
-                    llm_model=self.llm_model,
-                    connection_manager=self
-                )
+            # ⭐⭐ ГЕНЕРАЦИЯ АУДИО ИЗ НАКОПЛЕННОГО ТЕКСТА ⭐⭐
+            if self.awaiting_user_response and self.pending_user_response.strip():
+                try:
+                    # Генерируем аудио из всего накопленного текста
+                    await self.send_llm_response_in_audio(
+                        user_id=user_id,
+                        response_text=self.pending_user_response.strip()
+                    )
+                except Exception as e:
+                    self.logger.error(f"Audio generation failed: {e}")
+                
                 self.pending_user_response = ""  # Сбрасываем накопленный текст
             
         elif result.status == 'bad':
             await self.send_error(user_id, f"Model error: {result.content}")
             await self.force_end_session()
-
-    async def send_llm_response(self, user_id: int, response: InterviewResponse):
-        """Отправка ответа от LLM клиенту"""
+    async def send_llm_response_in_audio(self, user_id: int, response_text: str):
+        """Генерация аудио и отправка чанков через вебсокет"""
         if not self.is_user_connected(user_id):
             return False
         
         try:
-            response_data = {
-                'type': 'llm_response',
-                'status': response.status.value,
-                'text': response.text,
-                'current_topic': response.current_topic,
-                'timestamp': datetime.now().timestamp()
-            }
+            # Генерируем аудио
+            audio_tensor = self.voice_generator(response_text)
             
-            await self.send_message(user_id, json.dumps(response_data))
+            # Конвертируем в bytes
+            audio_numpy = audio_tensor.numpy().astype(np.int16)
+            audio_bytes = audio_numpy.tobytes()
             
-            self.awaiting_user_response = True
-                
+            # ⭐⭐ ОТПРАВЛЯЕМ АУДИО ЧАНКИ ⭐⭐
+            await self.send_bytes(user_id, audio_bytes)
+            
             return True
             
         except Exception as e:
-            self.logger.error(f"Failed to send LLM response to user {user_id}: {e}")
+            self.logger.error(f"Failed to generate/send audio for user {user_id}: {e}")
             return False
 
     async def handle_audio_end(self, user_id: int, data: dict):
