@@ -27,7 +27,8 @@
     if (timerInterval) clearInterval(timerInterval);
     stopRecording();
     if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.close(1000, 'page unload');
+      try { ws.send(JSON.stringify({ type: 'audio_end', timestamp: Date.now() })); } catch {}
+      setTimeout(() => ws?.close(1000, 'page unload'), 100);
     }
   });
 
@@ -58,6 +59,8 @@
 
       ws.onopen = () => {
         console.log('WS connected:', encryptedUserId);
+        // ВАЖНО: первый кадр должен быть текстовым JSON
+        ws!.send(JSON.stringify({ type: 'audio_start', timestamp: Date.now() }));
         resolve(true);
       };
       
@@ -93,6 +96,13 @@
         }
       }, 5000);
     });
+  };
+
+  const bytesToBase64 = (bytes: Uint8Array) => {
+    let binary = '';
+    const len = bytes.byteLength;
+    for (let i = 0; i < len; i++) binary += String.fromCharCode(bytes[i]);
+    return btoa(binary);
   };
 
   const convertFloat32ToInt16 = (float32Array: Float32Array): Int16Array => {
@@ -133,16 +143,26 @@
       // Настраиваем обработчик данных
       processor.onaudioprocess = (event) => {
         if (!isRecording || !ws || ws.readyState !== WebSocket.OPEN) return;
-        
+
         try {
-          // Получаем данные из входного буфера
+          // Float32 → Int16
           const inputData = event.inputBuffer.getChannelData(0);
-          
-          // Конвертируем Float32 в Int16
           const int16Data = convertFloat32ToInt16(inputData);
-          
-          // Отправляем чанк через WebSocket как бинарные данные
-          ws.send(int16Data.buffer);
+          const bytes = new Uint8Array(int16Data.buffer);
+
+          // (опционально) простейший бэкпрешер
+          if (ws.bufferedAmount > 1_000_000) { // ~1MB
+            // пропускаем / ждём следующий такт аудио, чтобы не забить сокет
+            return;
+          }
+
+          // base64 и JSON
+          const b64 = bytesToBase64(bytes);
+          ws.send(JSON.stringify({
+            type: 'audio_chunk',
+            chunk: b64,
+            timestamp: Date.now()
+          }));
         } catch (error) {
           console.error('Error processing audio chunk:', error);
         }
@@ -218,7 +238,11 @@
       
       // Закрываем WebSocket соединение
       if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.close(1000, 'Recording stopped by user');
+        try {
+          ws.send(JSON.stringify({ type: 'audio_end', timestamp: Date.now() }));
+        } catch {}
+        // небольшая пауза, чтобы кадр успел уйти
+        setTimeout(() => ws?.close(1000, 'Recording stopped by user'), 100);
       }
       ws = null;
     } else {
@@ -261,7 +285,8 @@
       // Останавливаем запись и закрываем соединения
       stopRecording();
       if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.close(1000, 'interview ended by user');
+        try { ws.send(JSON.stringify({ type: 'audio_end', timestamp: Date.now() })); } catch {}
+        setTimeout(() => ws?.close(1000, 'page unload'), 100);
       }
       ws = null;
       

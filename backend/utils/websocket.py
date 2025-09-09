@@ -48,7 +48,6 @@ class ConnectionManager:
                 return False
             
             try:
-                await websocket.accept()
                 self.active_connections[user_id] = websocket
                 self.connection_times[user_id] = datetime.now()
                 self.logger.info(f"User {user_id} connected successfully")
@@ -74,14 +73,21 @@ class ConnectionManager:
     async def send_message(self, user_id: int, message: str) -> bool:
         if not self.is_user_connected(user_id):
             return False
-        
         try:
             await self.active_connections[user_id].send_text(message)
             return True
         except Exception as e:
-            self.logger.error(f"Failed to send message to user {user_id}: {e}")
-            await self.disconnect(user_id)
-            return False
+            self.logger.warning(f"send_text failed for user {user_id}: {e}")
+            # НЕ закрываем сразу. Можно добавить 1 ретрай через tiny sleep.
+            await asyncio.sleep(0.01)
+            try:
+                await self.active_connections[user_id].send_text(message)
+                return True
+            except Exception as e2: 
+                self.logger.error(f"send_text retry failed for user {user_id}: {e2}")
+                # вот тут можно закрыть
+                await self.disconnect(user_id)
+                return False
 
     async def send_bytes(self, user_id: int, data: bytes) -> bool:
         if not self.is_user_connected(user_id):
@@ -91,9 +97,17 @@ class ConnectionManager:
             await self.active_connections[user_id].send_bytes(data)
             return True
         except Exception as e:
-            self.logger.error(f"Failed to send bytes to user {user_id}: {e}")
-            await self.disconnect(user_id)
-            return False
+            self.logger.warning(f"send_text failed for user {user_id}: {e}")
+            # НЕ закрываем сразу. Можно добавить 1 ретрай через tiny sleep.
+            await asyncio.sleep(0.01)
+            try:
+                await self.active_connections[user_id].send_bytes(data)
+                return True
+            except Exception as e2: 
+                self.logger.error(f"send_text retry failed for user {user_id}: {e2}")
+                # вот тут можно закрыть
+                await self.disconnect(user_id)
+                return False
 
     async def broadcast(self, message: str):
         disconnected_users = []

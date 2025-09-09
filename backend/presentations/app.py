@@ -5,6 +5,7 @@ from services.parsing_service import ParsingService
 from services.match_service import MatchService
 from llm_compare.llm_module import LLMAnalyzer
 from services.user import UserService
+from utils.voice.сhunk_processor import chunk_processor
 from settings.settings import settings
 from repositories.db.repository import Repository
 from schemas.docs import ParsingAndLLMResponse, InterviewDTO
@@ -19,6 +20,7 @@ import base64
 from utils.handling_llm import llm
 import httpx
 import numpy as np
+import logging
 
 # глобальный http-клиент
 async_client: httpx.AsyncClient | None = None
@@ -107,58 +109,85 @@ async def compare_docs(request: Request, cv: UploadFile = File(...), vacancy: Up
     resp.score = dto.decision["score"]*100
     resp.reasons = dto.decision["reasons"][0] if dto.decision["reasons"] else None
     return resp
-    # if answer:
-    #     user_id = await user_service.put_user(json = {"rezume+vaka":answer["rezume+vaka"]})
-    #     encrypted_user_id = user_service.get_encrypted_id(id=user_id)
-    #     return {"result":"ok", "url":f"http://localhost/api/interview/{encrypted_user_id}"}
 
 class TestWebSocketRequest(BaseModel):
     user_id: int = 123
     chunks_count: int = 5
     chunk_delay: float = 0.1
     
-
-manager = ConnectionManager()
-audio_manager = AudioConnectionManager(manager, llm_model=llm)
+audio_manager = AudioConnectionManager(chunk_processor=chunk_processor, llm_model=llm)
 
 @app.websocket("/interview/{encrypted_user_id}")
 async def websocket_audio_endpoint(websocket: WebSocket, encrypted_user_id: str = Path(...)):
-    """Основной цикл обработки WebSocket сообщений"""
-    manager = audio_manager
     user_id = await user_service.validate_user(id=encrypted_user_id)
     if user_id is None:
-        raise Exception("No such user")
-    
-    await websocket.accept()
-    
-    if not await manager.connect(websocket, user_id):
+        await websocket.close(code=4401)
+        return
+
+    # СНАЧАЛА проверяем возможность коннекта, ПОТОМ accept
+    if not await audio_manager.connect(websocket, user_id):
         await websocket.close(code=1008, reason="Session already active")
         return
-    
+
+    await websocket.accept()
+
     try:
         while True:
-            data = await websocket.receive_text()
-            msg_data = json.loads(data)
-            msg_type = MessageType(msg_data['type'])
-            
-            if msg_type == MessageType.AUDIO_START:
-                await manager.handle_audio_start(user_id, msg_data)
-                
-            elif msg_type == MessageType.AUDIO_CHUNK:
-                await manager.handle_audio_chunk(user_id, msg_data)
-                
-            elif msg_type == MessageType.AUDIO_END:
-                await manager.handle_audio_end(user_id, msg_data)
+            msg = await websocket.receive()
+            t = msg.get("type")
+
+            if t == "websocket.receive":
+                if "text" in msg and msg["text"] is not None:
+                    try:
+                        msg_data = json.loads(msg["text"])
+                    except Exception as e:
+                        await audio_manager.send_message(user_id, json.dumps(
+                            {"type": "error", "message": f"Bad JSON: {e}"}
+                        ))
+                        continue
+
+                    mt = msg_data.get("type")
+                    try:
+                        msg_type = MessageType(mt)
+                    except Exception:
+                        await audio_manager.send_message(user_id, json.dumps(
+                            {"type": "error", "message": f"Unknown type: {mt}"}
+                        ))
+                        continue
+
+                    if msg_type == MessageType.AUDIO_START:
+                        await audio_manager.handle_audio_start(user_id, msg_data)
+                    elif msg_type == MessageType.AUDIO_CHUNK:
+                        await audio_manager.handle_audio_chunk(user_id, msg_data)
+                    elif msg_type == MessageType.AUDIO_END:
+                        await audio_manager.handle_audio_end(user_id, msg_data)
+                        break
+                    else:
+                        await audio_manager.send_message(user_id, json.dumps(
+                            {"type": "error", "message": f"Unsupported: {msg_type}"}
+                        ))
+
+                elif "bytes" in msg and msg["bytes"] is not None:
+                    await audio_manager.send_message(user_id, json.dumps(
+                        {"type": "error", "message": "Binary frames not supported; send base64 JSON"}
+                    ))
+
+            elif t == "websocket.disconnect":
+                await audio_manager.disconnect(user_id)
                 break
-                
-            else:
-                await manager.send_error(user_id, f"Unknown message type: {msg_type}")
-                
-    except WebSocketDisconnect:
-        await manager.disconnect(user_id)
+
+    except WebSocketDisconnect as e:
+        await audio_manager.disconnect(user_id)
     except Exception as e:
-        await manager.send_error(user_id, f"Connection error: {e}")
-        await manager.disconnect(user_id)
+        # Ключевое: залогировать стек, а не молча закрыть
+        logging.exception("WS loop error")
+        try:
+            await audio_manager.send_message(user_id, json.dumps(
+                {"type": "error", "message": f"Connection error: {e}"}
+            ))
+        finally:
+            await audio_manager.disconnect(user_id)
+
 
 @app.websocket("/test-audio")
 async def test_audio_websocket(websocket: WebSocket):
