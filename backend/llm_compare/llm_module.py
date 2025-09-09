@@ -146,6 +146,7 @@ class LLMAnalyzer:
             hard_weight (float): Вес для hard skills
             soft_weight (float): Вес для soft skiils
         """
+      assert hard_weight + soft_weight == 1
       self.hard_weight = hard_weight
       self.soft_weight = soft_weight
     
