@@ -29,11 +29,11 @@
     const target = event.target as HTMLInputElement;
     const files = Array.from(target.files ?? []);
 
-  if (files.length > 10) {
-    alert('Можно загрузить не более 10 файлов');
-    target.value = '';
-    return;
-  }
+    if (files.length > 10) {
+      alert('Можно загрузить не более 10 файлов');
+      target.value = '';
+      return;
+    }
 
     const valid = files.filter(isValidFileType);
     if (valid.length !== files.length) {
@@ -45,17 +45,13 @@
     resumeFiles = valid;
   };
 
-  type BackendDecision = {
-    decision: 'reject'
-    score: number;
-    reasons?: string[];
-    details?: Record<string, unknown>;
-  };
-
+  // --- новый тип ответа бекенда ---
   type CompareResponse = {
-    decision: BackendDecision | Record<string, never>;
-    vacancy: Record<string, unknown>;
-    text: { cv_text: string; vac_text: string };
+    decision: string | boolean | null;  // 'reject' | 'False' | 'false' | 'invite' | true | ...
+    score: number;                      // уже конечный, без *100
+    reasons?: string;                   // строка
+    details?: Record<string, unknown>;
+    link?: string;                      // ссылка, если passed
   };
 
   type UIResult = {
@@ -63,7 +59,7 @@
     fileName: string;
     verdict: 'собеседование' | 'отказ';
     comment: string;
-    score: number; // 0..100
+    score: number; // 0..100 (или иной диапазон — берём как дал бек)
   };
 
   const startComparison = async (): Promise<void> => {
@@ -97,17 +93,19 @@
 
         const data: CompareResponse = await resp.json();
 
-        const dec = (data?.decision ?? {}) as BackendDecision;
-        const isReject = dec.decision === 'reject';
+        // --- решение и вердикт ---
+        const decisionStr = String(data?.decision ?? '').trim().toLowerCase();
+        const isReject = decisionStr === 'reject' || decisionStr === 'false';
         const verdict: UIResult['verdict'] = isReject ? 'отказ' : 'собеседование';
+
+        // --- комментарий: link если прошёл, иначе reasons ---
         const comment =
           verdict === 'собеседование'
-            ? 'здесь должна быть ссылка'
-            : Array.isArray(dec.reasons) && dec.reasons.length > 0
-              ? dec.reasons.join('; ')
-              : 'Причины не указаны';
+            ? (data.link ?? '')
+            : (data.reasons ?? 'Причины не указаны');
 
-        const score = Math.round(((dec.score ?? 0) as number) * 100);
+        // --- score: просто округляем ---
+        const score = Math.round(Number(data?.score ?? 0));
 
         results.push({
           id: i + 1,
@@ -130,7 +128,6 @@
     }
 
     sessionStorage.setItem('aihr_results', JSON.stringify(results));
-
     setTimeout(() => navigateToResults(), 300);
   };
 </script>
