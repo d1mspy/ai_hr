@@ -178,7 +178,7 @@ class LLMAnalyzer:
     async def _send_to_llm(
         self,
         user_prompt: str,
-        max_tokens: int = 100000,
+        max_tokens: int = 10000,
         client: httpx.AsyncClient | None = None,
     ) -> dict:
         """
